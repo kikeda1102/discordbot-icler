@@ -33,9 +33,9 @@ export async function startBot(
   try {
     await client.login(token);
 
-    // ready イベントを待機
+    // clientReady イベントを待機（v15対応）
     return new Promise((resolve) => {
-      client.once('ready', () => {
+      client.once('clientReady', () => {
         if (client.user !== null) {
           logger.info('Discord Bot が起動しました', {
             username: client.user.username,
