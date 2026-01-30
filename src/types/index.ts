@@ -49,5 +49,6 @@ export interface EventInfo {
   endTime: Date;
   location?: string;
   url?: string;
+  isAllDay?: boolean;
 }
 

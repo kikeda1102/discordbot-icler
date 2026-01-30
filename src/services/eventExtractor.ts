@@ -3,16 +3,16 @@
  * Google Gemini API を使用して Discord メッセージからイベント情報を抽出する
  */
 
-import type { Embed } from 'discord.js';
-import type { Result, EventInfo } from '../types/index.js';
-import { getConfig } from '../config/index.js';
-import { logger } from '../utils/logger.js';
+import type { Embed } from "discord.js";
+import type { Result, EventInfo } from "../types/index.js";
+import { getConfig } from "../config/index.js";
+import { logger } from "../utils/logger.js";
 
 /** Gemini API エンドポイント */
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 /** 使用するモデル */
-const MODEL = 'gemini-2.0-flash-lite-001';
+const MODEL = "gemini-2.0-flash-lite-001";
 
 /** リトライ設定（Google推奨の指数バックオフ + ジッター） */
 const RETRY_CONFIG = {
@@ -70,8 +70,9 @@ function buildExtractionPrompt(currentDate: string): string {
 
 **抽出する情報（イベント情報の場合のみ）:**
 - イベント名（title）: イベントの名前
-- 開始日時（startTime）: ISO 8601 形式（例: 2025-02-15T22:00:00+09:00）
-- 終了日時（endTime）: ISO 8601 形式。不明な場合は開始から4時間後と仮定
+- 時刻情報の有無（hasTime）: 開始時刻が明記されているかどうか
+- 開始日時（startTime）: 時刻が明記されている場合は ISO 8601 形式（例: 2025-02-15T22:00:00+09:00）、時刻が不明な場合は日付のみ（例: 2025-02-15）
+- 終了日時（endTime）: 時刻が明記されている場合は ISO 8601 形式、時刻が不明な場合は日付のみ（開始日の翌日）
 - 場所（location）: 開催場所。不明な場合は空文字
 - 説明（description）: イベントの詳細説明
 
@@ -79,16 +80,17 @@ function buildExtractionPrompt(currentDate: string): string {
 - イベントの日付は基本的に現在日時より未来です。過去の日付にならないよう注意してください
 - 日時が曖昧な場合（例: "2/15"）は、現在日時より未来になる直近の日付として解釈してください
 - 年が明記されていない場合、現在日時より未来になる年を選んでください（例: 現在が2026年1月で "5/25" なら 2026-05-25）
-- 時刻が不明な場合は22:00開始と仮定
-- クラブイベントは通常22:00〜翌5:00頃なので、終了時刻が不明な場合はそのように推定
+- **時刻が明記されていない場合**: hasTime を false にし、startTime/endTime は日付のみ（YYYY-MM-DD形式）を返してください。終日イベントとして登録します
+- **時刻が明記されている場合**: hasTime を true にし、startTime/endTime は ISO 8601 形式で返してください
 - メッセージ本文とembed両方の情報を活用してください
 
 **出力形式:**
 JSON形式で以下のように返してください。コードブロックは不要です。
 
-イベント情報が含まれている場合:
+イベント情報が含まれている場合（時刻あり）:
 {
   "isEvent": true,
+  "hasTime": true,
   "title": "イベント名",
   "startTime": "2025-02-15T22:00:00+09:00",
   "endTime": "2025-02-16T05:00:00+09:00",
@@ -96,9 +98,21 @@ JSON形式で以下のように返してください。コードブロックは�
   "description": "説明"
 }
 
+イベント情報が含まれている場合（時刻なし・終日イベント）:
+{
+  "isEvent": true,
+  "hasTime": false,
+  "title": "イベント名",
+  "startTime": "2025-02-15",
+  "endTime": "2025-02-16",
+  "location": "場所",
+  "description": "説明"
+}
+
 イベント情報が含まれていない場合（日常のツイート、ニュース、宣伝など）:
 {
   "isEvent": false,
+  "hasTime": false,
   "title": "",
   "startTime": "",
   "endTime": "",
@@ -110,6 +124,7 @@ JSON形式で以下のように返してください。コードブロックは�
 /** パースしたイベント情報 */
 interface ParsedEventInfo {
   isEvent: boolean;
+  hasTime: boolean;
   title: string;
   startTime: string;
   endTime: string;
@@ -150,14 +165,14 @@ async function callGeminiApi(prompt: string): Promise<Result<string>> {
     },
   };
 
-  let lastError = '';
+  let lastError = "";
 
   for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
     try {
       const response = await fetch(url, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
       });
@@ -165,7 +180,7 @@ async function callGeminiApi(prompt: string): Promise<Result<string>> {
       // 429 レート制限エラーの場合はリトライ
       if (response.status === 429) {
         const delayMs = calculateBackoffDelay(attempt);
-        logger.warn('Gemini API レート制限に達しました。リトライします', {
+        logger.warn("Gemini API レート制限に達しました。リトライします", {
           attempt: attempt + 1,
           maxRetries: RETRY_CONFIG.maxRetries + 1,
           delayMs,
@@ -196,7 +211,7 @@ async function callGeminiApi(prompt: string): Promise<Result<string>> {
       if (!isGeminiResponse(json)) {
         return {
           success: false,
-          reason: 'Gemini API レスポンスの形式が不正です',
+          reason: "Gemini API レスポンスの形式が不正です",
         };
       }
 
@@ -211,13 +226,13 @@ async function callGeminiApi(prompt: string): Promise<Result<string>> {
       if (text === undefined) {
         return {
           success: false,
-          reason: 'Gemini API からテキストレスポンスがありません',
+          reason: "Gemini API からテキストレスポンスがありません",
         };
       }
 
       // リトライ成功時はログ出力
       if (attempt > 0) {
-        logger.info('Gemini API リトライ成功', { attempt: attempt + 1 });
+        logger.info("Gemini API リトライ成功", { attempt: attempt + 1 });
       }
 
       return {
@@ -225,12 +240,12 @@ async function callGeminiApi(prompt: string): Promise<Result<string>> {
         data: text,
       };
     } catch (error: unknown) {
-      lastError = error instanceof Error ? error.message : '不明なエラー';
+      lastError = error instanceof Error ? error.message : "不明なエラー";
 
       // ネットワークエラーもリトライ対象
       if (attempt < RETRY_CONFIG.maxRetries) {
         const delayMs = calculateBackoffDelay(attempt);
-        logger.warn('Gemini API 呼び出しエラー。リトライします', {
+        logger.warn("Gemini API 呼び出しエラー。リトライします", {
           attempt: attempt + 1,
           maxRetries: RETRY_CONFIG.maxRetries + 1,
           delayMs,
@@ -252,7 +267,7 @@ async function callGeminiApi(prompt: string): Promise<Result<string>> {
  * Gemini API レスポンスの型ガード
  */
 function isGeminiResponse(value: unknown): value is GeminiResponse {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== "object" || value === null) {
     return false;
   }
   return true;
@@ -268,7 +283,7 @@ function isGeminiResponse(value: unknown): value is GeminiResponse {
 export async function extractEventFromMessage(
   content: string,
   embeds: Embed[],
-  originalUrl: string
+  originalUrl: string,
 ): Promise<Result<EventInfo>> {
   // embed 情報を文字列化
   const embedTexts = embeds
@@ -285,9 +300,9 @@ export async function extractEventFromMessage(
       }
       if (embed.fields.length > 0) {
         const fieldTexts = embed.fields.map((f) => `${f.name}: ${f.value}`);
-        parts.push(`フィールド:\n${fieldTexts.join('\n')}`);
+        parts.push(`フィールド:\n${fieldTexts.join("\n")}`);
       }
-      return parts.join('\n');
+      return parts.join("\n");
     })
     .filter((text) => text.length > 0);
 
@@ -295,19 +310,19 @@ export async function extractEventFromMessage(
 ${content}
 
 **埋め込み情報（embed）:**
-${embedTexts.length > 0 ? embedTexts.join('\n\n---\n\n') : '（なし）'}
+${embedTexts.length > 0 ? embedTexts.join("\n\n---\n\n") : "（なし）"}
 
 **元のURL:** ${originalUrl}`;
 
   // 現在日時を日本時間で取得
   const now = new Date();
-  const currentDate = now.toLocaleString('ja-JP', {
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
+  const currentDate = now.toLocaleString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 
   const fullPrompt = `${buildExtractionPrompt(currentDate)}
@@ -316,7 +331,7 @@ ${embedTexts.length > 0 ? embedTexts.join('\n\n---\n\n') : '（なし）'}
 
 ${userMessage}`;
 
-  logger.info('イベント情報の抽出を開始します', {
+  logger.info("イベント情報の抽出を開始します", {
     url: originalUrl,
     contentLength: content.length,
     embedCount: embeds.length,
@@ -325,7 +340,7 @@ ${userMessage}`;
   // Gemini API を呼び出し
   const apiResult = await callGeminiApi(fullPrompt);
   if (!apiResult.success) {
-    logger.error('Gemini API 呼び出しに失敗しました', {
+    logger.error("Gemini API 呼び出しに失敗しました", {
       url: originalUrl,
       reason: apiResult.reason,
     });
@@ -342,10 +357,10 @@ ${userMessage}`;
 
   // イベント情報でない場合はスキップ
   if (!parsed.isEvent) {
-    logger.info('イベント情報ではないためスキップします', { url: originalUrl });
+    logger.info("イベント情報ではないためスキップします", { url: originalUrl });
     return {
       success: false,
-      reason: 'イベント情報が含まれていません',
+      reason: "イベント情報が含まれていません",
     };
   }
 
@@ -355,41 +370,41 @@ ${userMessage}`;
 
   // 日付の妥当性チェック
   if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-    logger.error('抽出された日時が不正です', {
+    logger.error("抽出された日時が不正です", {
       url: originalUrl,
       startTime: parsed.startTime,
       endTime: parsed.endTime,
     });
     return {
       success: false,
-      reason: '抽出された日時の形式が不正です',
+      reason: "抽出された日時の形式が不正です",
     };
   }
 
-  // EventInfo を構築（location は空文字でないときのみ設定）
-  const eventInfo: EventInfo =
-    parsed.location !== ''
-      ? {
-          title: parsed.title,
-          description: parsed.description,
-          startTime,
-          endTime,
-          location: parsed.location,
-          url: originalUrl,
-        }
-      : {
-          title: parsed.title,
-          description: parsed.description,
-          startTime,
-          endTime,
-          url: originalUrl,
-        };
+  // 終日イベントかどうか
+  const isAllDay = !parsed.hasTime;
 
-  logger.info('イベント情報を抽出しました', {
+  // EventInfo を構築
+  const eventInfo: EventInfo = {
+    title: parsed.title,
+    description: parsed.description,
+    startTime,
+    endTime,
+    url: originalUrl,
+    isAllDay,
+  };
+
+  // location は空文字でないときのみ設定
+  if (parsed.location !== "") {
+    eventInfo.location = parsed.location;
+  }
+
+  logger.info("イベント情報を抽出しました", {
     url: originalUrl,
     title: eventInfo.title,
     startTime: eventInfo.startTime.toISOString(),
     endTime: eventInfo.endTime.toISOString(),
+    isAllDay,
   });
 
   return {
@@ -414,10 +429,10 @@ function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
 
     // 型検証
     if (!isValidParsedEventInfo(parsed)) {
-      logger.error('抽出されたJSONの形式が不正です', { json: cleanJson });
+      logger.error("抽出されたJSONの形式が不正です", { json: cleanJson });
       return {
         success: false,
-        reason: '抽出されたJSONの形式が不正です',
+        reason: "抽出されたJSONの形式が不正です",
       };
     }
 
@@ -427,8 +442,8 @@ function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
     };
   } catch (error: unknown) {
     const errorMessage =
-      error instanceof Error ? error.message : '不明なエラー';
-    logger.error('JSONのパースに失敗しました', {
+      error instanceof Error ? error.message : "不明なエラー";
+    logger.error("JSONのパースに失敗しました", {
       error: errorMessage,
       json: jsonString,
     });
@@ -443,22 +458,24 @@ function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
  * パースされたオブジェクトが正しい形式かチェック
  */
 function isValidParsedEventInfo(value: unknown): value is ParsedEventInfo {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== "object" || value === null) {
     return false;
   }
 
   return (
-    'isEvent' in value &&
-    typeof value.isEvent === 'boolean' &&
-    'title' in value &&
-    typeof value.title === 'string' &&
-    'startTime' in value &&
-    typeof value.startTime === 'string' &&
-    'endTime' in value &&
-    typeof value.endTime === 'string' &&
-    'location' in value &&
-    typeof value.location === 'string' &&
-    'description' in value &&
-    typeof value.description === 'string'
+    "isEvent" in value &&
+    typeof value.isEvent === "boolean" &&
+    "hasTime" in value &&
+    typeof value.hasTime === "boolean" &&
+    "title" in value &&
+    typeof value.title === "string" &&
+    "startTime" in value &&
+    typeof value.startTime === "string" &&
+    "endTime" in value &&
+    typeof value.endTime === "string" &&
+    "location" in value &&
+    typeof value.location === "string" &&
+    "description" in value &&
+    typeof value.description === "string"
   );
 }

@@ -34,6 +34,18 @@ function formatDateTimeForJST(date: Date): string {
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
 }
 
+/**
+ * Date を日付のみの文字列に変換する（終日イベント用）
+ * @param date 日付
+ * @returns YYYY-MM-DD 形式の文字列
+ */
+function formatDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 /** EventInfo を Google Calendar イベント形式に変換 */
 function toCalendarEvent(eventInfo: EventInfo): calendar_v3.Schema$Event {
   // description に Twitter URL を含める
@@ -43,18 +55,35 @@ function toCalendarEvent(eventInfo: EventInfo): calendar_v3.Schema$Event {
     descriptionParts.push(`source: ${eventInfo.url}`);
   }
 
-  const event: calendar_v3.Schema$Event = {
-    summary: eventInfo.title,
-    description: descriptionParts.join("\n"),
-    start: {
-      dateTime: formatDateTimeForJST(eventInfo.startTime),
-      timeZone: "Asia/Tokyo",
-    },
-    end: {
-      dateTime: formatDateTimeForJST(eventInfo.endTime),
-      timeZone: "Asia/Tokyo",
-    },
-  };
+  let event: calendar_v3.Schema$Event;
+
+  // 終日イベントの場合
+  if (eventInfo.isAllDay === true) {
+    event = {
+      summary: eventInfo.title,
+      description: descriptionParts.join("\n"),
+      start: {
+        date: formatDateOnly(eventInfo.startTime),
+      },
+      end: {
+        date: formatDateOnly(eventInfo.endTime),
+      },
+    };
+  } else {
+    // 通常イベント（時刻指定）
+    event = {
+      summary: eventInfo.title,
+      description: descriptionParts.join("\n"),
+      start: {
+        dateTime: formatDateTimeForJST(eventInfo.startTime),
+        timeZone: "Asia/Tokyo",
+      },
+      end: {
+        dateTime: formatDateTimeForJST(eventInfo.endTime),
+        timeZone: "Asia/Tokyo",
+      },
+    };
+  }
 
   if (eventInfo.location !== undefined) {
     event.location = eventInfo.location;
