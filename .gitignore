@@ -35,3 +35,6 @@ token.json
 tmp/
 temp/
 *.tmp
+
+# Claude
+.claude
