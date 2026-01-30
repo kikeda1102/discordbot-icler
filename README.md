@@ -47,6 +47,31 @@ Discord Server
 | カレンダー | Google Calendar API |
 | ビルド | tsup |
 
+## ファイル構成
+
+```
+src/
+├── index.ts                    # エントリーポイント
+├── client/
+│   └── index.ts                # Discord Client 初期化
+├── config/
+│   └── index.ts                # 環境変数・設定
+├── handlers/
+│   ├── messageCreate.ts        # メッセージ受信ハンドラ
+│   └── interactionCreate.ts    # インタラクションハンドラ
+├── services/
+│   ├── urlExtractor.ts         # X/Twitter URL 抽出
+│   ├── eventExtractor.ts       # Gemini でイベント抽出
+│   ├── calendarService.ts      # Google Calendar 連携
+│   └── imageService.ts         # 画像処理
+├── stores/
+│   └── pendingEvents.ts        # 保留中イベント管理
+├── types/
+│   └── index.ts                # 型定義
+└── utils/
+    └── logger.ts               # ロギング
+```
+
 ## セットアップ
 
 ### 1. 依存関係のインストール
@@ -59,19 +84,13 @@ pnpm install
 
 `.env.example` をコピーして `.env` を作成し、各値を設定してください。
 
-### 3. Google Calendar OAuth2 認証（初回のみ）
-
-```bash
-pnpm run auth:google
-```
-
-### 4. 開発サーバーの起動
+### 3. 開発サーバーの起動
 
 ```bash
 pnpm run dev
 ```
 
-### 5. ビルド
+### 4. ビルド
 
 ```bash
 pnpm run build
