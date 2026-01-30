@@ -6,6 +6,7 @@ primary_region = "nrt"  # 東京リージョン
 [env]
   NODE_ENV = "production"
   LOG_LEVEL = "info"
+  TZ = "Asia/Tokyo"
 
 [[vm]]
   memory = "256mb"
