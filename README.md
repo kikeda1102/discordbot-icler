@@ -17,11 +17,11 @@ Discord Server (#クラブイベント)
 │  └──────────────┘   └────────┬─────────┘    │
 │                              ▼              │
 │  ┌──────────────────────────────────────┐   │
-│  │ FixTweet API でツイート内容取得       │   │
+│  │ Discord embed からツイート内容取得    │   │
 │  └────────────────────┬─────────────────┘   │
 │                       ▼                     │
 │  ┌──────────────────────────────────────┐   │
-│  │ Claude API でイベント情報抽出         │   │
+│  │ Gemini API でイベント情報抽出         │   │
 │  │ (日時・場所・イベント名)              │   │
 │  └────────────────────┬─────────────────┘   │
 │                       ▼                     │
@@ -39,8 +39,7 @@ Discord Server (#クラブイベント)
 | ランタイム | Node.js 20+ | discord.js の要件 |
 | パッケージ管理 | pnpm | 高速、ディスク効率 |
 | Discord | discord.js v14 | 成熟したライブラリ、WebSocket 対応 |
-| Twitter | FixTweet API | 無料、公式 API 不要 |
-| LLM | Claude API (Haiku) | 低コスト（月100件で約$0.03）、日本語に優れる |
+| LLM | Google Gemini API | 無料枠あり（毎分15リクエスト）、日本語に優れる |
 | Google | googleapis | 公式ライブラリ、OAuth2 対応 |
 | デプロイ | Railway | 無料枠$5/月、WebSocket対応、常時稼働 |
 | ビルド | tsup | シンプルで高速 |
@@ -67,8 +66,8 @@ discordbot-icler/
 │   │   ├── messageHandler.ts    # メッセージ受信
 │   │   └── commandHandler.ts    # スラッシュコマンド
 │   ├── services/
-│   │   ├── twitterService.ts    # FixTweet でツイート取得
-│   │   ├── eventExtractor.ts    # Claude でイベント抽出
+│   │   ├── urlExtractor.ts      # X/Twitter URL 抽出
+│   │   ├── eventExtractor.ts    # Gemini でイベント抽出
 │   │   └── calendarService.ts   # Google Calendar 連携
 │   ├── utils/
 │   │   ├── urlParser.ts         # URL 解析
@@ -97,11 +96,10 @@ pnpm install
 ```env
 # Discord
 DISCORD_BOT_TOKEN=           # Discord Developer Portal で取得
-DISCORD_TARGET_CHANNEL_ID=   # #クラブイベント チャンネルの ID
-DISCORD_GUILD_ID=            # サーバー ID
+DISCORD_CHANNEL_ID=          # #クラブイベント チャンネルの ID
 
-# Claude API
-ANTHROPIC_API_KEY=           # Anthropic Console で取得
+# Google Gemini API
+GEMINI_API_KEY=              # Google AI Studio で取得
 
 # Google Calendar
 GOOGLE_CLIENT_ID=            # Google Cloud Console で取得
@@ -147,6 +145,5 @@ pnpm run build
 ## 注意事項
 
 - このリポジトリは Public にする予定です。機密情報をコミットしないでください
-- FixTweet は非公式サービスのため、将来的に使えなくなる可能性があります
 - Google Calendar の OAuth2 は初回のみ手動で認証が必要です
-- Claude API のコストは非常に低いですが、API キー管理は慎重に行ってください
+- Gemini API は無料枠（毎分15リクエスト）がありますが、API キー管理は慎重に行ってください

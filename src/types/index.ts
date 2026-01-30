@@ -32,11 +32,8 @@ export interface Config {
     refreshToken: string;
     calendarId: string;
   };
-  anthropic: {
+  gemini: {
     apiKey: string;
-  };
-  twitter: {
-    bearerToken: string;
   };
   app: {
     logLevel: LogLevel;
@@ -54,10 +51,3 @@ export interface EventInfo {
   url?: string;
 }
 
-/** ツイート情報 */
-export interface TweetInfo {
-  id: string;
-  text: string;
-  authorUsername: string;
-  createdAt: Date;
-}

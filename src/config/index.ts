@@ -44,11 +44,8 @@ function loadConfig(): Config {
       refreshToken: getRequiredEnvVar('GOOGLE_REFRESH_TOKEN'),
       calendarId: getRequiredEnvVar('GOOGLE_CALENDAR_ID'),
     },
-    anthropic: {
-      apiKey: getRequiredEnvVar('ANTHROPIC_API_KEY'),
-    },
-    twitter: {
-      bearerToken: getRequiredEnvVar('TWITTER_BEARER_TOKEN'),
+    gemini: {
+      apiKey: getRequiredEnvVar('GEMINI_API_KEY'),
     },
     app: {
       logLevel: parseLogLevel(getEnvVar('LOG_LEVEL')),

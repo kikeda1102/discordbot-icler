@@ -2,10 +2,9 @@
  * messageCreate イベントハンドラ
  */
 
-import type { Client, Message } from 'discord.js';
+import type { Client, Embed, Message } from 'discord.js';
 import { extractXUrls } from '../services/urlExtractor.js';
-import { extractTweetId, fetchTweet } from '../services/twitterClient.js';
-import { extractEventInfo } from '../services/eventExtractor.js';
+import { extractEventFromMessage } from '../services/eventExtractor.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -55,37 +54,39 @@ function createMessageHandler(
       channelId: message.channelId,
     });
 
+    // メッセージ本文と embed 情報をログ出力（デバッグ用）
+    logger.debug('メッセージ内容', {
+      content: message.content,
+      embedCount: message.embeds.length,
+      embeds: message.embeds.map((embed) => ({
+        title: embed.title,
+        description: embed.description,
+        url: embed.url,
+        author: embed.author,
+        fields: embed.fields,
+      })),
+    });
+
     // 各 URL を処理
     for (const url of result.data) {
-      await processTwitterUrl(url);
+      await processEventExtraction(message.content, message.embeds, url);
     }
   };
 }
 
 /**
- * X/Twitter URL を処理してイベント情報を抽出する
+ * Discord メッセージからイベント情報を抽出する
+ * @param content メッセージ本文
+ * @param embeds 埋め込み情報
  * @param url X/Twitter URL
  */
-async function processTwitterUrl(url: string): Promise<void> {
-  // ツイートIDを抽出
-  const tweetId = extractTweetId(url);
-  if (tweetId === null) {
-    logger.warn('ツイートIDを抽出できませんでした', { url });
-    return;
-  }
-
-  // ツイートを取得
-  const tweetResult = await fetchTweet(tweetId);
-  if (!tweetResult.success) {
-    logger.warn('ツイートの取得に失敗しました', {
-      url,
-      reason: tweetResult.reason,
-    });
-    return;
-  }
-
+async function processEventExtraction(
+  content: string,
+  embeds: Embed[],
+  url: string
+): Promise<void> {
   // イベント情報を抽出
-  const eventResult = await extractEventInfo(tweetResult.data, url);
+  const eventResult = await extractEventFromMessage(content, embeds, url);
   if (!eventResult.success) {
     logger.warn('イベント情報の抽出に失敗しました', {
       url,

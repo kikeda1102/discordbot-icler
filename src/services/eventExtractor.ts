@@ -1,20 +1,24 @@
 /**
  * イベント情報抽出サービス
- * Anthropic API を使用してツイートからイベント情報を抽出する
+ * Google Gemini API を使用して Discord メッセージからイベント情報を抽出する
  */
 
-import Anthropic from '@anthropic-ai/sdk';
-import type { Result, TweetInfo, EventInfo } from '../types/index.js';
+import type { Embed } from 'discord.js';
+import type { Result, EventInfo } from '../types/index.js';
 import { getConfig } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 
+/** Gemini API エンドポイント */
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
 /** 使用するモデル */
-const MODEL = 'claude-sonnet-4-20250514';
+const MODEL = 'gemini-2.0-flash';
 
 /** イベント抽出のプロンプト */
-const EXTRACTION_PROMPT = `あなたはツイートからクラブイベント情報を抽出するアシスタントです。
+const EXTRACTION_PROMPT = `あなたはDiscordメッセージからクラブイベント情報を抽出するアシスタントです。
 
-以下のツイートからイベント情報を抽出してください。
+以下の情報からイベント情報を抽出してください。
+メッセージにはX/Twitterリンクと、その埋め込みプレビュー（embed）が含まれている場合があります。
 
 **抽出する情報:**
 - イベント名（title）: イベントの名前
@@ -27,6 +31,7 @@ const EXTRACTION_PROMPT = `あなたはツイートからクラブイベント�
 - 日時が曖昧な場合（例: "2/15"）は、今年の日付として解釈し、時刻が不明な場合は22:00開始と仮定
 - クラブイベントは通常22:00〜翌5:00頃なので、終了時刻が不明な場合はそのように推定
 - 情報が全く読み取れない場合は、title を "不明なイベント" として返す
+- メッセージ本文とembed両方の情報を活用してください
 
 **出力形式:**
 JSON形式で以下のように返してください。コードブロックは不要です。
@@ -38,7 +43,7 @@ JSON形式で以下のように返してください。コードブロックは�
   "description": "説明"
 }`;
 
-/** Anthropic API レスポンスからパースしたイベント情報 */
+/** パースしたイベント情報 */
 interface ParsedEventInfo {
   title: string;
   startTime: string;
@@ -47,131 +52,222 @@ interface ParsedEventInfo {
   description: string;
 }
 
-/**
- * Anthropic API クライアントを作成する
- */
-function createAnthropicClient(): Anthropic {
-  const config = getConfig();
-  return new Anthropic({
-    apiKey: config.anthropic.apiKey,
-  });
+/** Gemini API レスポンスの型 */
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+  error?: {
+    message: string;
+  };
 }
 
 /**
- * ツイートからイベント情報を抽出する
- * @param tweet ツイート情報
- * @param originalUrl 元のツイートURL
- * @returns 抽出されたイベント情報
+ * Gemini API を呼び出す
  */
-export async function extractEventInfo(
-  tweet: TweetInfo,
-  originalUrl: string
-): Promise<Result<EventInfo>> {
-  const client = createAnthropicClient();
+async function callGeminiApi(prompt: string): Promise<Result<string>> {
+  const config = getConfig();
+  const url = `${GEMINI_API_BASE}/models/${MODEL}:generateContent?key=${config.gemini.apiKey}`;
 
-  const userMessage = `ツイート投稿者: @${tweet.authorUsername}
-投稿日時: ${tweet.createdAt.toISOString()}
-
-ツイート本文:
-${tweet.text}`;
+  const requestBody = {
+    contents: [
+      {
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 1024,
+    },
+  };
 
   try {
-    logger.info('イベント情報の抽出を開始します', {
-      tweetId: tweet.id,
-      authorUsername: tweet.authorUsername,
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
     });
 
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: EXTRACTION_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: userMessage,
-        },
-      ],
-    });
-
-    // レスポンスからテキストを取得
-    const textBlock = response.content.find((block) => block.type === 'text');
-    if (textBlock === undefined || textBlock.type !== 'text') {
-      logger.error('Anthropic API からテキストレスポンスがありません', {
-        tweetId: tweet.id,
-      });
+    if (!response.ok) {
+      const errorText = await response.text();
       return {
         success: false,
-        reason: 'Anthropic API からテキストレスポンスがありません',
+        reason: `Gemini API エラー: ${response.status} ${errorText}`,
       };
     }
 
-    // JSONをパース
-    const parseResult = parseEventJson(textBlock.text);
-    if (!parseResult.success) {
-      return parseResult;
-    }
+    const json: unknown = await response.json();
 
-    const parsed = parseResult.data;
-
-    // Date オブジェクトに変換
-    const startTime = new Date(parsed.startTime);
-    const endTime = new Date(parsed.endTime);
-
-    // 日付の妥当性チェック
-    if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-      logger.error('抽出された日時が不正です', {
-        tweetId: tweet.id,
-        startTime: parsed.startTime,
-        endTime: parsed.endTime,
-      });
+    if (!isGeminiResponse(json)) {
       return {
         success: false,
-        reason: '抽出された日時の形式が不正です',
+        reason: 'Gemini API レスポンスの形式が不正です',
       };
     }
 
-    // EventInfo を構築（location は空文字でないときのみ設定）
-    const eventInfo: EventInfo =
-      parsed.location !== ''
-        ? {
-            title: parsed.title,
-            description: parsed.description,
-            startTime,
-            endTime,
-            location: parsed.location,
-            url: originalUrl,
-          }
-        : {
-            title: parsed.title,
-            description: parsed.description,
-            startTime,
-            endTime,
-            url: originalUrl,
-          };
+    if (json.error !== undefined) {
+      return {
+        success: false,
+        reason: `Gemini API エラー: ${json.error.message}`,
+      };
+    }
 
-    logger.info('イベント情報を抽出しました', {
-      tweetId: tweet.id,
-      title: eventInfo.title,
-      startTime: eventInfo.startTime.toISOString(),
-      endTime: eventInfo.endTime.toISOString(),
-    });
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text === undefined) {
+      return {
+        success: false,
+        reason: 'Gemini API からテキストレスポンスがありません',
+      };
+    }
 
     return {
       success: true,
-      data: eventInfo,
+      data: text,
     };
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : '不明なエラー';
-    logger.error('イベント情報の抽出中にエラーが発生しました', {
-      tweetId: tweet.id,
-      error: errorMessage,
+    return {
+      success: false,
+      reason: `Gemini API 呼び出しエラー: ${errorMessage}`,
+    };
+  }
+}
+
+/**
+ * Gemini API レスポンスの型ガード
+ */
+function isGeminiResponse(value: unknown): value is GeminiResponse {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Discord メッセージからイベント情報を抽出する
+ * @param content メッセージ本文
+ * @param embeds 埋め込み情報
+ * @param originalUrl 元のツイートURL
+ * @returns 抽出されたイベント情報
+ */
+export async function extractEventFromMessage(
+  content: string,
+  embeds: Embed[],
+  originalUrl: string
+): Promise<Result<EventInfo>> {
+  // embed 情報を文字列化
+  const embedTexts = embeds
+    .map((embed) => {
+      const parts: string[] = [];
+      if (embed.author?.name !== undefined) {
+        parts.push(`投稿者: ${embed.author.name}`);
+      }
+      if (embed.title !== null) {
+        parts.push(`タイトル: ${embed.title}`);
+      }
+      if (embed.description !== null) {
+        parts.push(`内容: ${embed.description}`);
+      }
+      if (embed.fields.length > 0) {
+        const fieldTexts = embed.fields.map((f) => `${f.name}: ${f.value}`);
+        parts.push(`フィールド:\n${fieldTexts.join('\n')}`);
+      }
+      return parts.join('\n');
+    })
+    .filter((text) => text.length > 0);
+
+  const userMessage = `**Discordメッセージ本文:**
+${content}
+
+**埋め込み情報（embed）:**
+${embedTexts.length > 0 ? embedTexts.join('\n\n---\n\n') : '（なし）'}
+
+**元のURL:** ${originalUrl}`;
+
+  const fullPrompt = `${EXTRACTION_PROMPT}
+
+---
+
+${userMessage}`;
+
+  logger.info('イベント情報の抽出を開始します', {
+    url: originalUrl,
+    contentLength: content.length,
+    embedCount: embeds.length,
+  });
+
+  // Gemini API を呼び出し
+  const apiResult = await callGeminiApi(fullPrompt);
+  if (!apiResult.success) {
+    logger.error('Gemini API 呼び出しに失敗しました', {
+      url: originalUrl,
+      reason: apiResult.reason,
+    });
+    return apiResult;
+  }
+
+  // JSONをパース
+  const parseResult = parseEventJson(apiResult.data);
+  if (!parseResult.success) {
+    return parseResult;
+  }
+
+  const parsed = parseResult.data;
+
+  // Date オブジェクトに変換
+  const startTime = new Date(parsed.startTime);
+  const endTime = new Date(parsed.endTime);
+
+  // 日付の妥当性チェック
+  if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+    logger.error('抽出された日時が不正です', {
+      url: originalUrl,
+      startTime: parsed.startTime,
+      endTime: parsed.endTime,
     });
     return {
       success: false,
-      reason: `イベント抽出エラー: ${errorMessage}`,
+      reason: '抽出された日時の形式が不正です',
     };
   }
+
+  // EventInfo を構築（location は空文字でないときのみ設定）
+  const eventInfo: EventInfo =
+    parsed.location !== ''
+      ? {
+          title: parsed.title,
+          description: parsed.description,
+          startTime,
+          endTime,
+          location: parsed.location,
+          url: originalUrl,
+        }
+      : {
+          title: parsed.title,
+          description: parsed.description,
+          startTime,
+          endTime,
+          url: originalUrl,
+        };
+
+  logger.info('イベント情報を抽出しました', {
+    url: originalUrl,
+    title: eventInfo.title,
+    startTime: eventInfo.startTime.toISOString(),
+    endTime: eventInfo.endTime.toISOString(),
+  });
+
+  return {
+    success: true,
+    data: eventInfo,
+  };
 }
 
 /**

@@ -21,7 +21,6 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.72.1",
     "discord.js": "^14.18.0",
     "googleapis": "^146.0.0"
   },
