@@ -16,7 +16,23 @@ import { logger } from '../utils/logger.js';
 const BUTTON_PREFIX = {
   REGISTER: 'event_register_',
   CANCEL: 'event_cancel_',
+  HELP: 'event_help',
 } as const;
+
+/** 使い方の説明テキスト */
+const HELP_TEXT = `📖 **使い方**
+
+**ボタン操作:**
+• 「登録する」→ Google カレンダーにイベントを登録
+• 「キャンセル」→ 登録せずにキャンセル
+
+**修正方法:**
+この確認メッセージに**返信**すると、修正指示として処理されます。
+例: 「時間は22:00からです」「場所はClub XYZです」
+
+**注意:**
+• ボタン操作と修正は**投稿者のみ**が行えます
+• **10分**経過するとタイムアウトします`;
 
 /**
  * ボタンクリックを処理する
@@ -41,6 +57,22 @@ async function handleButtonClick(interaction: Interaction): Promise<void> {
     await handleCancelButton(interaction, customId);
     return;
   }
+
+  // ヘルプボタンの処理
+  if (customId === BUTTON_PREFIX.HELP) {
+    await handleHelpButton(interaction);
+    return;
+  }
+}
+
+/**
+ * ヘルプボタンの処理
+ */
+async function handleHelpButton(interaction: ButtonInteraction): Promise<void> {
+  await interaction.reply({
+    content: HELP_TEXT,
+    ephemeral: true,
+  });
 }
 
 /**

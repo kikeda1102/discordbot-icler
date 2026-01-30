@@ -115,6 +115,10 @@ async function sendConfirmationMessage(
     new ButtonBuilder()
       .setCustomId(`event_cancel_${tempId}`)
       .setLabel('キャンセル')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('event_help')
+      .setLabel('使い方')
       .setStyle(ButtonStyle.Secondary)
   );
 
@@ -143,6 +147,10 @@ async function sendConfirmationMessage(
     new ButtonBuilder()
       .setCustomId(`event_cancel_${eventId}`)
       .setLabel('キャンセル')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('event_help')
+      .setLabel('使い方')
       .setStyle(ButtonStyle.Secondary)
   );
 
@@ -212,6 +220,10 @@ async function handleCorrectionReply(
     new ButtonBuilder()
       .setCustomId(`event_cancel_${eventId}`)
       .setLabel('キャンセル')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('event_help')
+      .setLabel('使い方')
       .setStyle(ButtonStyle.Secondary)
   );
 
