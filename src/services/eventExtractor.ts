@@ -20,7 +20,11 @@ const EXTRACTION_PROMPT = `あなたはDiscordメッセージからクラブイ�
 以下の情報からイベント情報を抽出してください。
 メッセージにはX/Twitterリンクと、その埋め込みプレビュー（embed）が含まれている場合があります。
 
-**抽出する情報:**
+**重要: まずイベント情報かどうかを判断してください**
+- クラブイベント、パーティー、ライブ、DJイベントなどの告知 → イベント情報
+- 日常のツイート、ニュース、単なる宣伝、感想、写真共有など → イベント情報ではない
+
+**抽出する情報（イベント情報の場合のみ）:**
 - イベント名（title）: イベントの名前
 - 開始日時（startTime）: ISO 8601 形式（例: 2025-02-15T22:00:00+09:00）
 - 終了日時（endTime）: ISO 8601 形式。不明な場合は開始から4時間後と仮定
@@ -30,21 +34,34 @@ const EXTRACTION_PROMPT = `あなたはDiscordメッセージからクラブイ�
 **ルール:**
 - 日時が曖昧な場合（例: "2/15"）は、今年の日付として解釈し、時刻が不明な場合は22:00開始と仮定
 - クラブイベントは通常22:00〜翌5:00頃なので、終了時刻が不明な場合はそのように推定
-- 情報が全く読み取れない場合は、title を "不明なイベント" として返す
 - メッセージ本文とembed両方の情報を活用してください
 
 **出力形式:**
 JSON形式で以下のように返してください。コードブロックは不要です。
+
+イベント情報が含まれている場合:
 {
+  "isEvent": true,
   "title": "イベント名",
   "startTime": "2025-02-15T22:00:00+09:00",
   "endTime": "2025-02-16T05:00:00+09:00",
   "location": "場所",
   "description": "説明"
+}
+
+イベント情報が含まれていない場合（日常のツイート、ニュース、宣伝など）:
+{
+  "isEvent": false,
+  "title": "",
+  "startTime": "",
+  "endTime": "",
+  "location": "",
+  "description": ""
 }`;
 
 /** パースしたイベント情報 */
 interface ParsedEventInfo {
+  isEvent: boolean;
   title: string;
   startTime: string;
   endTime: string;
@@ -221,6 +238,15 @@ ${userMessage}`;
 
   const parsed = parseResult.data;
 
+  // イベント情報でない場合はスキップ
+  if (!parsed.isEvent) {
+    logger.info('イベント情報ではないためスキップします', { url: originalUrl });
+    return {
+      success: false,
+      reason: 'イベント情報が含まれていません',
+    };
+  }
+
   // Date オブジェクトに変換
   const startTime = new Date(parsed.startTime);
   const endTime = new Date(parsed.endTime);
@@ -320,6 +346,8 @@ function isValidParsedEventInfo(value: unknown): value is ParsedEventInfo {
   }
 
   return (
+    'isEvent' in value &&
+    typeof value.isEvent === 'boolean' &&
     'title' in value &&
     typeof value.title === 'string' &&
     'startTime' in value &&
