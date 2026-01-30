@@ -31,12 +31,20 @@ function parseLogLevel(value: string | undefined): LogLevel {
   return 'info';
 }
 
+/** カンマ区切りのチャンネルIDをパースする */
+function parseChannelIds(value: string): string[] {
+  return value
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id !== '');
+}
+
 /** 設定を読み込み・バリデーション */
 function loadConfig(): Config {
   return {
     discord: {
       botToken: getRequiredEnvVar('DISCORD_BOT_TOKEN'),
-      channelId: getRequiredEnvVar('DISCORD_CHANNEL_ID'),
+      channelIds: parseChannelIds(getRequiredEnvVar('DISCORD_CHANNEL_IDS')),
     },
     google: {
       clientId: getRequiredEnvVar('GOOGLE_CLIENT_ID'),

@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   }
 
   // イベントハンドラを登録
-  registerMessageHandler(client, config.discord.channelId);
+  registerMessageHandler(client, config.discord.channelIds);
 
   logger.info('Discord Bot の起動が完了しました');
 }

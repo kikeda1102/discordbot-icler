@@ -15,17 +15,17 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * メッセージハンドラを作成する
- * @param channelId 監視対象のチャンネルID
+ * @param channelIds 監視対象のチャンネルID配列
  * @param clientUserId Bot自身のユーザーID
  * @returns メッセージハンドラ関数
  */
 function createMessageHandler(
-  channelId: string,
+  channelIds: string[],
   clientUserId: string
 ): (message: Message) => Promise<void> {
   return async (message: Message): Promise<void> => {
     // 指定チャンネル以外は無視
-    if (message.channelId !== channelId) {
+    if (!channelIds.includes(message.channelId)) {
       return;
     }
 
@@ -151,11 +151,11 @@ async function processEventExtraction(
 /**
  * messageCreate イベントを登録する
  * @param client Discord Client
- * @param channelId 監視対象のチャンネルID
+ * @param channelIds 監視対象のチャンネルID配列
  */
 export function registerMessageHandler(
   client: Client,
-  channelId: string
+  channelIds: string[]
 ): void {
   // client.user が null の場合は登録しない
   if (client.user === null) {
@@ -163,7 +163,7 @@ export function registerMessageHandler(
     return;
   }
 
-  const handler = createMessageHandler(channelId, client.user.id);
+  const handler = createMessageHandler(channelIds, client.user.id);
 
   client.on('messageCreate', (message) => {
     handler(message).catch((error: unknown) => {
@@ -176,5 +176,5 @@ export function registerMessageHandler(
     });
   });
 
-  logger.info('messageCreate ハンドラを登録しました', { channelId });
+  logger.info('messageCreate ハンドラを登録しました', { channelIds });
 }

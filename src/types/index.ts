@@ -24,7 +24,7 @@ export type Result<T> = Success<T> | Failure;
 export interface Config {
   discord: {
     botToken: string;
-    channelId: string;
+    channelIds: string[];
   };
   google: {
     clientId: string;
