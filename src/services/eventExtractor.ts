@@ -12,7 +12,7 @@ import { logger } from '../utils/logger.js';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 /** 使用するモデル */
-const MODEL = 'gemini-2.0-flash';
+const MODEL = 'gemini-2.0-flash-lite-001';
 
 /** イベント抽出のプロンプト */
 const EXTRACTION_PROMPT = `あなたはDiscordメッセージからクラブイベント情報を抽出するアシスタントです。

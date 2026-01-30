@@ -7,6 +7,11 @@ import { extractXUrls } from '../services/urlExtractor.js';
 import { extractEventFromMessage } from '../services/eventExtractor.js';
 import { logger } from '../utils/logger.js';
 
+/** 指定ミリ秒待機する */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * メッセージハンドラを作成する
  * @param channelId 監視対象のチャンネルID
@@ -54,11 +59,29 @@ function createMessageHandler(
       channelId: message.channelId,
     });
 
+    // embed が遅延読み込みされるため、少し待ってからメッセージを再取得
+    let embeds = message.embeds;
+    if (embeds.length === 0) {
+      logger.debug('embed がないため、3秒待機して再取得します');
+      await sleep(3000);
+      try {
+        const refreshedMessage = await message.fetch();
+        embeds = refreshedMessage.embeds;
+        logger.debug('メッセージを再取得しました', {
+          embedCount: embeds.length,
+        });
+      } catch (error: unknown) {
+        logger.warn('メッセージの再取得に失敗しました', {
+          messageId: message.id,
+        });
+      }
+    }
+
     // メッセージ本文と embed 情報をログ出力（デバッグ用）
     logger.debug('メッセージ内容', {
       content: message.content,
-      embedCount: message.embeds.length,
-      embeds: message.embeds.map((embed) => ({
+      embedCount: embeds.length,
+      embeds: embeds.map((embed) => ({
         title: embed.title,
         description: embed.description,
         url: embed.url,
@@ -69,7 +92,7 @@ function createMessageHandler(
 
     // 各 URL を処理
     for (const url of result.data) {
-      await processEventExtraction(message.content, message.embeds, url);
+      await processEventExtraction(message.content, embeds, url);
     }
   };
 }
