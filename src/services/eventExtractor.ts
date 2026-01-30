@@ -52,8 +52,14 @@ function calculateBackoffDelay(attempt: number): number {
   return Math.floor(cappedDelay * jitter);
 }
 
-/** イベント抽出のプロンプト */
-const EXTRACTION_PROMPT = `あなたはDiscordメッセージからクラブイベント情報を抽出するアシスタントです。
+/**
+ * イベント抽出のプロンプトを生成する
+ * @param currentDate 現在日時（日本時間）
+ */
+function buildExtractionPrompt(currentDate: string): string {
+  return `あなたはDiscordメッセージからクラブイベント情報を抽出するアシスタントです。
+
+**現在日時: ${currentDate}（日本時間）**
 
 以下の情報からイベント情報を抽出してください。
 メッセージにはX/Twitterリンクと、その埋め込みプレビュー（embed）が含まれている場合があります。
@@ -70,7 +76,10 @@ const EXTRACTION_PROMPT = `あなたはDiscordメッセージからクラブイ�
 - 説明（description）: イベントの詳細説明
 
 **ルール:**
-- 日時が曖昧な場合（例: "2/15"）は、今年の日付として解釈し、時刻が不明な場合は22:00開始と仮定
+- イベントの日付は基本的に現在日時より未来です。過去の日付にならないよう注意してください
+- 日時が曖昧な場合（例: "2/15"）は、現在日時より未来になる直近の日付として解釈してください
+- 年が明記されていない場合、現在日時より未来になる年を選んでください（例: 現在が2026年1月で "5/25" なら 2026-05-25）
+- 時刻が不明な場合は22:00開始と仮定
 - クラブイベントは通常22:00〜翌5:00頃なので、終了時刻が不明な場合はそのように推定
 - メッセージ本文とembed両方の情報を活用してください
 
@@ -96,6 +105,7 @@ JSON形式で以下のように返してください。コードブロックは�
   "location": "",
   "description": ""
 }`;
+}
 
 /** パースしたイベント情報 */
 interface ParsedEventInfo {
@@ -289,7 +299,18 @@ ${embedTexts.length > 0 ? embedTexts.join('\n\n---\n\n') : '（なし）'}
 
 **元のURL:** ${originalUrl}`;
 
-  const fullPrompt = `${EXTRACTION_PROMPT}
+  // 現在日時を日本時間で取得
+  const now = new Date();
+  const currentDate = now.toLocaleString('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const fullPrompt = `${buildExtractionPrompt(currentDate)}
 
 ---
 
