@@ -52,3 +52,9 @@ export interface EventInfo {
   isAllDay?: boolean;
 }
 
+/** 画像データ（Base64エンコード済み） */
+export interface ImageData {
+  mimeType: string;
+  base64Data: string;
+}
+

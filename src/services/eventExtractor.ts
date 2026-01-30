@@ -4,15 +4,16 @@
  */
 
 import type { Embed } from "discord.js";
-import type { Result, EventInfo } from "../types/index.js";
+import type { Result, EventInfo, ImageData } from "../types/index.js";
 import { getConfig } from "../config/index.js";
 import { logger } from "../utils/logger.js";
+import { fetchMultipleImages } from "./imageService.js";
 
 /** Gemini API エンドポイント */
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 /** 使用するモデル */
-const MODEL = "gemini-2.0-flash-lite-001";
+const MODEL = "gemini-2.5-flash-lite";
 
 /** リトライ設定（Google推奨の指数バックオフ + ジッター） */
 const RETRY_CONFIG = {
@@ -55,21 +56,37 @@ function calculateBackoffDelay(attempt: number): number {
 /**
  * イベント抽出のプロンプトを生成する
  * @param currentDate 現在日時（日本時間）
+ * @param hasImages 画像が含まれているかどうか
  */
-function buildExtractionPrompt(currentDate: string): string {
+function buildExtractionPrompt(
+  currentDate: string,
+  hasImages: boolean,
+): string {
+  const imageInstruction = hasImages
+    ? `
+**画像について（重要）:**
+- 添付された画像はイベントのフライヤーや告知画像です
+- **画像内に日付や時刻が記載されている場合は、そちらを優先してください**
+- テキストに「約1ヶ月後」などの曖昧な表現があっても、画像内の具体的な日付を使用してください
+- 画像内のテキストを注意深く読み取ってください
+- **イベント名（タイトル）は通常、フライヤーの最も目立つ位置（上部や中央）に大きなフォントで表示されています**
+- **出演者/DJ/アーティストの名前はタイトルではありません。「LINE UP」「出演」「GUEST」などの見出しの下や、小さめのフォントで記載されているものは出演者名です**`
+    : "";
+
   return `あなたはDiscordメッセージからクラブイベント情報を抽出するアシスタントです。
 
 **現在日時: ${currentDate}（日本時間）**
 
 以下の情報からイベント情報を抽出してください。
 メッセージにはX/Twitterリンクと、その埋め込みプレビュー（embed）が含まれている場合があります。
+${imageInstruction}
 
 **重要: まずイベント情報かどうかを判断してください**
 - クラブイベント、パーティー、ライブ、DJイベントなどの告知 → イベント情報
 - 日常のツイート、ニュース、単なる宣伝、感想、写真共有など → イベント情報ではない
 
 **抽出する情報（イベント情報の場合のみ）:**
-- イベント名（title）: イベントの名前
+- イベント名（title）: イベントの正式名称。フライヤーの最も目立つ位置（上部や中央）に大きく表示されているテキストを優先。基本的にはツイートの本文に含まれており、含まれていない場合は間違っている可能性あるので注意すること。出演者名・アーティスト名・DJ名とは区別すること
 - 時刻情報の有無（hasTime）: 開始時刻が明記されているかどうか
 - 開始日時（startTime）: 時刻が明記されている場合は ISO 8601 形式（例: 2025-02-15T22:00:00+09:00）、時刻が不明な場合は日付のみ（例: 2025-02-15）
 - 終了日時（endTime）: 時刻が明記されている場合は ISO 8601 形式、時刻が不明な場合は日付のみ（開始日の翌日）
@@ -146,17 +163,42 @@ interface GeminiResponse {
   };
 }
 
+/** Gemini API リクエストの parts 型 */
+type GeminiPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } };
+
 /**
  * Gemini API を呼び出す（429エラー時は自動リトライ）
+ * @param prompt プロンプトテキスト
+ * @param images 画像データ（オプション）- Vision API で画像解析する場合に使用
  */
-async function callGeminiApi(prompt: string): Promise<Result<string>> {
+async function callGeminiApi(
+  prompt: string,
+  images?: ImageData[],
+): Promise<Result<string>> {
   const config = getConfig();
   const url = `${GEMINI_API_BASE}/models/${MODEL}:generateContent?key=${config.gemini.apiKey}`;
+
+  // parts 配列を構築（テキスト + 画像）
+  const parts: GeminiPart[] = [{ text: prompt }];
+
+  // 画像がある場合は inlineData として追加
+  if (images !== undefined && images.length > 0) {
+    for (const image of images) {
+      parts.push({
+        inlineData: {
+          mimeType: image.mimeType,
+          data: image.base64Data,
+        },
+      });
+    }
+  }
 
   const requestBody = {
     contents: [
       {
-        parts: [{ text: prompt }],
+        parts,
       },
     ],
     generationConfig: {
@@ -274,6 +316,28 @@ function isGeminiResponse(value: unknown): value is GeminiResponse {
 }
 
 /**
+ * Discord embed から画像URLを抽出する
+ * @param embeds Discord embed の配列
+ * @returns 画像URLの配列
+ */
+function extractImageUrls(embeds: Embed[]): string[] {
+  const urls: string[] = [];
+
+  for (const embed of embeds) {
+    // メイン画像
+    if (embed.image?.url !== undefined) {
+      urls.push(embed.image.url);
+    }
+    // サムネイル画像
+    if (embed.thumbnail?.url !== undefined) {
+      urls.push(embed.thumbnail.url);
+    }
+  }
+
+  return urls;
+}
+
+/**
  * Discord メッセージからイベント情報を抽出する
  * @param content メッセージ本文
  * @param embeds 埋め込み情報
@@ -285,6 +349,12 @@ export async function extractEventFromMessage(
   embeds: Embed[],
   originalUrl: string,
 ): Promise<Result<EventInfo>> {
+  // embed から画像URLを抽出
+  const imageUrls = extractImageUrls(embeds);
+
+  // 画像を取得してBase64エンコード
+  const images = await fetchMultipleImages(imageUrls);
+
   // embed 情報を文字列化
   const embedTexts = embeds
     .map((embed) => {
@@ -325,7 +395,9 @@ ${embedTexts.length > 0 ? embedTexts.join("\n\n---\n\n") : "（なし）"}
     minute: "2-digit",
   });
 
-  const fullPrompt = `${buildExtractionPrompt(currentDate)}
+  // 画像があるかどうかでプロンプトを切り替え
+  const hasImages = images.length > 0;
+  const fullPrompt = `${buildExtractionPrompt(currentDate, hasImages)}
 
 ---
 
@@ -335,11 +407,15 @@ ${userMessage}`;
     url: originalUrl,
     contentLength: content.length,
     embedCount: embeds.length,
+    imageCount: images.length,
     userMessage,
   });
 
-  // Gemini API を呼び出し
-  const apiResult = await callGeminiApi(fullPrompt);
+  // Gemini API を呼び出し（画像がある場合は Vision API として使用）
+  const apiResult = await callGeminiApi(
+    fullPrompt,
+    hasImages ? images : undefined,
+  );
   if (!apiResult.success) {
     logger.error("Gemini API 呼び出しに失敗しました", {
       url: originalUrl,
