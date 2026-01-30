@@ -61,22 +61,25 @@ function createMessageHandler(
     });
 
     // embed が遅延読み込みされるため、少し待ってからメッセージを再取得
-    let embeds = message.embeds;
-    if (embeds.length === 0) {
+    const embeds = await (async () => {
+      if (message.embeds.length > 0) {
+        return message.embeds;
+      }
       logger.debug('embed がないため、3秒待機して再取得します');
       await sleep(3000);
       try {
         const refreshedMessage = await message.fetch();
-        embeds = refreshedMessage.embeds;
         logger.debug('メッセージを再取得しました', {
-          embedCount: embeds.length,
+          embedCount: refreshedMessage.embeds.length,
         });
+        return refreshedMessage.embeds;
       } catch (error: unknown) {
         logger.warn('メッセージの再取得に失敗しました', {
           messageId: message.id,
         });
+        return message.embeds;
       }
-    }
+    })();
 
     // メッセージ本文と embed 情報をログ出力（デバッグ用）
     logger.debug('メッセージ内容', {

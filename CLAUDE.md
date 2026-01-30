@@ -33,6 +33,32 @@ pnpm run typecheck # 型チェック
 
 ## コーディング規約
 
+### 変数宣言（厳守）
+
+- **`let` の使用は原則禁止** - 常に `const` を使用すること
+- `let` が必要な場合（for ループのカウンターなど）は、再代入を避けるリファクタリングを検討する
+- 条件分岐で値が変わる場合は、三項演算子や即時関数で `const` を使う
+
+```typescript
+// ❌ let を使用
+let result = "";
+if (condition) {
+  result = "a";
+} else {
+  result = "b";
+}
+
+// ✅ const + 三項演算子
+const result = condition ? "a" : "b";
+
+// ✅ const + 即時関数（複雑なロジックの場合）
+const result = (() => {
+  if (conditionA) return "a";
+  if (conditionB) return "b";
+  return "c";
+})();
+```
+
 ### 型安全性（厳守）
 
 以下は **禁止** です：

@@ -419,11 +419,14 @@ ${userMessage}`;
 function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
   try {
     // JSONブロックを抽出（```json ... ``` 形式の場合に対応）
-    let cleanJson = jsonString.trim();
-    const codeBlockMatch = cleanJson.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlockMatch !== null && codeBlockMatch[1] !== undefined) {
-      cleanJson = codeBlockMatch[1].trim();
-    }
+    const cleanJson = (() => {
+      const trimmed = jsonString.trim();
+      const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeBlockMatch !== null && codeBlockMatch[1] !== undefined) {
+        return codeBlockMatch[1].trim();
+      }
+      return trimmed;
+    })();
 
     const parsed: unknown = JSON.parse(cleanJson);
 

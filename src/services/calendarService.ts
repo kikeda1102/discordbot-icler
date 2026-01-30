@@ -55,41 +55,34 @@ function toCalendarEvent(eventInfo: EventInfo): calendar_v3.Schema$Event {
     descriptionParts.push(`source: ${eventInfo.url}`);
   }
 
-  let event: calendar_v3.Schema$Event;
+  const baseEvent: calendar_v3.Schema$Event =
+    eventInfo.isAllDay === true
+      ? {
+          summary: eventInfo.title,
+          description: descriptionParts.join("\n"),
+          start: {
+            date: formatDateOnly(eventInfo.startTime),
+          },
+          end: {
+            date: formatDateOnly(eventInfo.endTime),
+          },
+        }
+      : {
+          summary: eventInfo.title,
+          description: descriptionParts.join("\n"),
+          start: {
+            dateTime: formatDateTimeForJST(eventInfo.startTime),
+            timeZone: "Asia/Tokyo",
+          },
+          end: {
+            dateTime: formatDateTimeForJST(eventInfo.endTime),
+            timeZone: "Asia/Tokyo",
+          },
+        };
 
-  // 終日イベントの場合
-  if (eventInfo.isAllDay === true) {
-    event = {
-      summary: eventInfo.title,
-      description: descriptionParts.join("\n"),
-      start: {
-        date: formatDateOnly(eventInfo.startTime),
-      },
-      end: {
-        date: formatDateOnly(eventInfo.endTime),
-      },
-    };
-  } else {
-    // 通常イベント（時刻指定）
-    event = {
-      summary: eventInfo.title,
-      description: descriptionParts.join("\n"),
-      start: {
-        dateTime: formatDateTimeForJST(eventInfo.startTime),
-        timeZone: "Asia/Tokyo",
-      },
-      end: {
-        dateTime: formatDateTimeForJST(eventInfo.endTime),
-        timeZone: "Asia/Tokyo",
-      },
-    };
-  }
-
-  if (eventInfo.location !== undefined) {
-    event.location = eventInfo.location;
-  }
-
-  return event;
+  return eventInfo.location !== undefined
+    ? { ...baseEvent, location: eventInfo.location }
+    : baseEvent;
 }
 
 /** イベントを Google Calendar に登録する */
