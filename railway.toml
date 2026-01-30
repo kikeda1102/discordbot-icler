@@ -1,0 +1,6 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "node dist/index.js"
+restartPolicyType = "always"

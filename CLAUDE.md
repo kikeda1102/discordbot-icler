@@ -13,10 +13,17 @@ Discord Bot で #クラブイベント チャンネルに投稿された X リ�
 ## コマンド
 
 ```bash
-pnpm install      # 依存関係インストール
-pnpm run dev      # 開発サーバー起動
-pnpm run build    # ビルド
+pnpm install       # 依存関係インストール
+pnpm run dev       # 開発サーバー起動
+pnpm run build     # ビルド
+pnpm run typecheck # 型チェック
 ```
+
+## 開発時の確認事項
+
+- **一定作業ごとに `pnpm run typecheck` を実行し、型エラーがないことを確認する**
+- ファイルを複数作成・編集した後は必ず型チェックを行う
+- エラーがあれば次の作業に進む前に修正する
 
 ## コーディング規約
 
