@@ -27,6 +27,14 @@ const RETRY_CONFIG = {
   backoffMultiplier: 2,
 } as const;
 
+/** JSONパースエラー時のリトライ設定 */
+const JSON_PARSE_RETRY_CONFIG = {
+  /** 最大リトライ回数 */
+  maxRetries: 2,
+  /** 待機時間（ミリ秒） */
+  delayMs: 500,
+} as const;
+
 /**
  * 指定ミリ秒待機する
  */
@@ -411,26 +419,52 @@ ${userMessage}`;
     userMessage,
   });
 
-  // Gemini API を呼び出し（画像がある場合は Vision API として使用）
-  const apiResult = await callGeminiApi(
-    fullPrompt,
-    hasImages ? images : undefined,
-  );
-  if (!apiResult.success) {
-    logger.error("Gemini API 呼び出しに失敗しました", {
-      url: originalUrl,
-      reason: apiResult.reason,
-    });
-    return apiResult;
+  // Gemini API を呼び出し（JSONパースエラー時はリトライ）
+  let parsed: ParsedEventInfo | undefined;
+  let lastError = "";
+
+  for (let attempt = 0; attempt <= JSON_PARSE_RETRY_CONFIG.maxRetries; attempt++) {
+    // Gemini API を呼び出し（画像がある場合は Vision API として使用）
+    const apiResult = await callGeminiApi(
+      fullPrompt,
+      hasImages ? images : undefined,
+    );
+    if (!apiResult.success) {
+      logger.error("Gemini API 呼び出しに失敗しました", {
+        url: originalUrl,
+        reason: apiResult.reason,
+      });
+      return apiResult;
+    }
+
+    // JSONをパース
+    const parseResult = parseEventJson(apiResult.data);
+    if (parseResult.success) {
+      parsed = parseResult.data;
+      if (attempt > 0) {
+        logger.info("JSONパースリトライ成功", { attempt: attempt + 1 });
+      }
+      break;
+    }
+
+    // パースエラー時はリトライ
+    lastError = parseResult.reason;
+    if (attempt < JSON_PARSE_RETRY_CONFIG.maxRetries) {
+      logger.warn("JSONパースエラー。リトライします", {
+        attempt: attempt + 1,
+        maxRetries: JSON_PARSE_RETRY_CONFIG.maxRetries + 1,
+        error: lastError,
+      });
+      await sleep(JSON_PARSE_RETRY_CONFIG.delayMs);
+    }
   }
 
-  // JSONをパース
-  const parseResult = parseEventJson(apiResult.data);
-  if (!parseResult.success) {
-    return parseResult;
+  if (parsed === undefined) {
+    return {
+      success: false,
+      reason: lastError,
+    };
   }
-
-  const parsed = parseResult.data;
 
   // イベント情報でない場合はスキップ
   if (!parsed.isEvent) {
@@ -746,26 +780,52 @@ ${userMessage}`,
     correction,
   });
 
-  // Gemini API を呼び出し
-  const apiResult = await callGeminiApi(
-    fullPrompt,
-    hasImages ? images : undefined
-  );
-  if (!apiResult.success) {
-    logger.error("Gemini API 呼び出しに失敗しました", {
-      url: originalUrl,
-      reason: apiResult.reason,
-    });
-    return apiResult;
+  // Gemini API を呼び出し（JSONパースエラー時はリトライ）
+  let parsed: ParsedEventInfo | undefined;
+  let lastError = "";
+
+  for (let attempt = 0; attempt <= JSON_PARSE_RETRY_CONFIG.maxRetries; attempt++) {
+    // Gemini API を呼び出し
+    const apiResult = await callGeminiApi(
+      fullPrompt,
+      hasImages ? images : undefined
+    );
+    if (!apiResult.success) {
+      logger.error("Gemini API 呼び出しに失敗しました", {
+        url: originalUrl,
+        reason: apiResult.reason,
+      });
+      return apiResult;
+    }
+
+    // JSONをパース
+    const parseResult = parseEventJson(apiResult.data);
+    if (parseResult.success) {
+      parsed = parseResult.data;
+      if (attempt > 0) {
+        logger.info("JSONパースリトライ成功", { attempt: attempt + 1 });
+      }
+      break;
+    }
+
+    // パースエラー時はリトライ
+    lastError = parseResult.reason;
+    if (attempt < JSON_PARSE_RETRY_CONFIG.maxRetries) {
+      logger.warn("JSONパースエラー。リトライします", {
+        attempt: attempt + 1,
+        maxRetries: JSON_PARSE_RETRY_CONFIG.maxRetries + 1,
+        error: lastError,
+      });
+      await sleep(JSON_PARSE_RETRY_CONFIG.delayMs);
+    }
   }
 
-  // JSONをパース
-  const parseResult = parseEventJson(apiResult.data);
-  if (!parseResult.success) {
-    return parseResult;
+  if (parsed === undefined) {
+    return {
+      success: false,
+      reason: lastError,
+    };
   }
-
-  const parsed = parseResult.data;
 
   // イベント情報でない場合はスキップ
   if (!parsed.isEvent) {
