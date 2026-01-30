@@ -35,6 +35,9 @@ export interface Config {
   anthropic: {
     apiKey: string;
   };
+  twitter: {
+    bearerToken: string;
+  };
   app: {
     logLevel: LogLevel;
     nodeEnv: string;
@@ -49,4 +52,12 @@ export interface EventInfo {
   endTime: Date;
   location?: string;
   url?: string;
+}
+
+/** ツイート情報 */
+export interface TweetInfo {
+  id: string;
+  text: string;
+  authorUsername: string;
+  createdAt: Date;
 }

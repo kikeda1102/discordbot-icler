@@ -47,6 +47,9 @@ function loadConfig(): Config {
     anthropic: {
       apiKey: getRequiredEnvVar('ANTHROPIC_API_KEY'),
     },
+    twitter: {
+      bearerToken: getRequiredEnvVar('TWITTER_BEARER_TOKEN'),
+    },
     app: {
       logLevel: parseLogLevel(getEnvVar('LOG_LEVEL')),
       nodeEnv: getEnvVar('NODE_ENV') ?? 'development',

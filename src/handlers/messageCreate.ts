@@ -4,6 +4,8 @@
 
 import type { Client, Message } from 'discord.js';
 import { extractXUrls } from '../services/urlExtractor.js';
+import { extractTweetId, fetchTweet } from '../services/twitterClient.js';
+import { extractEventInfo } from '../services/eventExtractor.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -53,8 +55,56 @@ function createMessageHandler(
       channelId: message.channelId,
     });
 
-    // TODO: Step 3 で Google Calendar 連携を実装
+    // 各 URL を処理
+    for (const url of result.data) {
+      await processTwitterUrl(url);
+    }
   };
+}
+
+/**
+ * X/Twitter URL を処理してイベント情報を抽出する
+ * @param url X/Twitter URL
+ */
+async function processTwitterUrl(url: string): Promise<void> {
+  // ツイートIDを抽出
+  const tweetId = extractTweetId(url);
+  if (tweetId === null) {
+    logger.warn('ツイートIDを抽出できませんでした', { url });
+    return;
+  }
+
+  // ツイートを取得
+  const tweetResult = await fetchTweet(tweetId);
+  if (!tweetResult.success) {
+    logger.warn('ツイートの取得に失敗しました', {
+      url,
+      reason: tweetResult.reason,
+    });
+    return;
+  }
+
+  // イベント情報を抽出
+  const eventResult = await extractEventInfo(tweetResult.data, url);
+  if (!eventResult.success) {
+    logger.warn('イベント情報の抽出に失敗しました', {
+      url,
+      reason: eventResult.reason,
+    });
+    return;
+  }
+
+  logger.info('イベント情報を抽出しました', {
+    url,
+    event: {
+      title: eventResult.data.title,
+      startTime: eventResult.data.startTime.toISOString(),
+      endTime: eventResult.data.endTime.toISOString(),
+      location: eventResult.data.location,
+    },
+  });
+
+  // TODO: Step 3b で Google Calendar に登録
 }
 
 /**
