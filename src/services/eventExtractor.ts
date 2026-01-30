@@ -14,6 +14,44 @@ const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 /** 使用するモデル */
 const MODEL = 'gemini-2.0-flash-lite-001';
 
+/** リトライ設定（Google推奨の指数バックオフ + ジッター） */
+const RETRY_CONFIG = {
+  /** 最大リトライ回数 */
+  maxRetries: 5,
+  /** 初回待機時間（ミリ秒） */
+  initialDelayMs: 1000,
+  /** 最大待機時間（ミリ秒） */
+  maxDelayMs: 60000,
+  /** バックオフ倍率 */
+  backoffMultiplier: 2,
+} as const;
+
+/**
+ * 指定ミリ秒待機する
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * ジッター付き指数バックオフの待機時間を計算する
+ * @param attempt リトライ回数（0始まり）
+ * @returns 待機時間（ミリ秒）
+ */
+function calculateBackoffDelay(attempt: number): number {
+  // 指数バックオフ: initialDelay * (multiplier ^ attempt)
+  const exponentialDelay =
+    RETRY_CONFIG.initialDelayMs *
+    Math.pow(RETRY_CONFIG.backoffMultiplier, attempt);
+
+  // 最大待機時間でキャップ
+  const cappedDelay = Math.min(exponentialDelay, RETRY_CONFIG.maxDelayMs);
+
+  // ジッター: 0.5〜1.5倍のランダム変動を追加
+  const jitter = 0.5 + Math.random();
+  return Math.floor(cappedDelay * jitter);
+}
+
 /** イベント抽出のプロンプト */
 const EXTRACTION_PROMPT = `あなたはDiscordメッセージからクラブイベント情報を抽出するアシスタントです。
 
@@ -84,7 +122,7 @@ interface GeminiResponse {
 }
 
 /**
- * Gemini API を呼び出す
+ * Gemini API を呼び出す（429エラー時は自動リトライ）
  */
 async function callGeminiApi(prompt: string): Promise<Result<string>> {
   const config = getConfig();
@@ -102,59 +140,102 @@ async function callGeminiApi(prompt: string): Promise<Result<string>> {
     },
   };
 
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
+  let lastError = '';
 
-    if (!response.ok) {
-      const errorText = await response.text();
+  for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      // 429 レート制限エラーの場合はリトライ
+      if (response.status === 429) {
+        const delayMs = calculateBackoffDelay(attempt);
+        logger.warn('Gemini API レート制限に達しました。リトライします', {
+          attempt: attempt + 1,
+          maxRetries: RETRY_CONFIG.maxRetries + 1,
+          delayMs,
+        });
+
+        if (attempt < RETRY_CONFIG.maxRetries) {
+          await sleep(delayMs);
+          continue;
+        }
+
+        // 最大リトライ回数に達した
+        return {
+          success: false,
+          reason: `Gemini API レート制限: ${RETRY_CONFIG.maxRetries + 1}回リトライしましたが失敗しました`,
+        };
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return {
+          success: false,
+          reason: `Gemini API エラー: ${response.status} ${errorText}`,
+        };
+      }
+
+      const json: unknown = await response.json();
+
+      if (!isGeminiResponse(json)) {
+        return {
+          success: false,
+          reason: 'Gemini API レスポンスの形式が不正です',
+        };
+      }
+
+      if (json.error !== undefined) {
+        return {
+          success: false,
+          reason: `Gemini API エラー: ${json.error.message}`,
+        };
+      }
+
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text === undefined) {
+        return {
+          success: false,
+          reason: 'Gemini API からテキストレスポンスがありません',
+        };
+      }
+
+      // リトライ成功時はログ出力
+      if (attempt > 0) {
+        logger.info('Gemini API リトライ成功', { attempt: attempt + 1 });
+      }
+
       return {
-        success: false,
-        reason: `Gemini API エラー: ${response.status} ${errorText}`,
+        success: true,
+        data: text,
       };
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error.message : '不明なエラー';
+
+      // ネットワークエラーもリトライ対象
+      if (attempt < RETRY_CONFIG.maxRetries) {
+        const delayMs = calculateBackoffDelay(attempt);
+        logger.warn('Gemini API 呼び出しエラー。リトライします', {
+          attempt: attempt + 1,
+          maxRetries: RETRY_CONFIG.maxRetries + 1,
+          delayMs,
+          error: lastError,
+        });
+        await sleep(delayMs);
+        continue;
+      }
     }
-
-    const json: unknown = await response.json();
-
-    if (!isGeminiResponse(json)) {
-      return {
-        success: false,
-        reason: 'Gemini API レスポンスの形式が不正です',
-      };
-    }
-
-    if (json.error !== undefined) {
-      return {
-        success: false,
-        reason: `Gemini API エラー: ${json.error.message}`,
-      };
-    }
-
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (text === undefined) {
-      return {
-        success: false,
-        reason: 'Gemini API からテキストレスポンスがありません',
-      };
-    }
-
-    return {
-      success: true,
-      data: text,
-    };
-  } catch (error: unknown) {
-    const errorMessage =
-      error instanceof Error ? error.message : '不明なエラー';
-    return {
-      success: false,
-      reason: `Gemini API 呼び出しエラー: ${errorMessage}`,
-    };
   }
+
+  return {
+    success: false,
+    reason: `Gemini API 呼び出しエラー: ${lastError}`,
+  };
 }
 
 /**
