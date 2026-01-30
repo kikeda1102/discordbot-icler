@@ -2,7 +2,7 @@
 
 > **Claude Code へ: 作業前に [CLAUDE.md](CLAUDE.md) を必ず確認してください**
 
-ICLer Discord の #クラブイベント チャンネルに投稿された X（Twitter）リンクから、イベント情報を抽出して Google カレンダーに自動追加する Bot
+ICLer Discord の #クラブイベント チャンネルに投稿された X（Twitter）リンクから、イベント情報を抽出して Google カレンダーに自動追加する Bot です
 
 ## アーキテクチャ
 
