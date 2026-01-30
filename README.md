@@ -7,7 +7,6 @@ Discord Bot で X（Twitter）リンクからイベント情報を抽出し、Go
 - Discord チャンネルへの X リンク投稿を自動検知
 - Gemini API でイベント情報（日時・場所・イベント名）を抽出
 - Google Calendar に自動でイベントを作成
-- 成功時は元メッセージに 📅 リアクションを付与
 
 ## アーキテクチャ
 
