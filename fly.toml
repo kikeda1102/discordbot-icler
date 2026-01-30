@@ -1,0 +1,13 @@
+app = "discordbot-icler"
+primary_region = "nrt"  # 東京リージョン
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  LOG_LEVEL = "info"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
