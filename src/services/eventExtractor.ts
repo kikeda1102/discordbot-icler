@@ -335,6 +335,7 @@ ${userMessage}`;
     url: originalUrl,
     contentLength: content.length,
     embedCount: embeds.length,
+    userMessage,
   });
 
   // Gemini API を呼び出し
