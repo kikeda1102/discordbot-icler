@@ -32,6 +32,10 @@ const BUTTON_PREFIX = {
   HELP: 'event_help',
 } as const;
 
+/** Google Calendar のリンク */
+const CALENDAR_URL =
+  'https://calendar.google.com/calendar/u/5?cid=M2Y0NWM1MTIyNjJjYzZkZjU2MDczNTdkOGVlMDhhMjdlMjdiMjMwMDY1YWUwYzI2OTA3ZTUyYWRkODg3ZTY2ZkBncm91cC5jYWxlbmRhci5nb29nbGUuY29t';
+
 /** 使い方の説明テキスト */
 const HELP_TEXT = `📖 **使い方**
 
@@ -217,7 +221,7 @@ async function registerEventToCalendar(
   if (result.success) {
     removePendingEvent(eventId);
     await interaction.editReply({
-      content: `✅ カレンダーに登録しました\n\n**${pending.eventInfo.title}**`,
+      content: `✅ カレンダーに登録しました\n\n**${pending.eventInfo.title}**\n\n📅 [カレンダーを開く](${CALENDAR_URL})`,
       components: [],
     });
 
