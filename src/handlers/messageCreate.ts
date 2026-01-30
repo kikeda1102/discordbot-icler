@@ -5,6 +5,7 @@
 import type { Client, Embed, Message } from 'discord.js';
 import { extractXUrls } from '../services/urlExtractor.js';
 import { extractEventFromMessage } from '../services/eventExtractor.js';
+import { createCalendarEvent } from '../services/calendarService.js';
 import { logger } from '../utils/logger.js';
 
 /** 指定ミリ秒待機する */
@@ -92,18 +93,20 @@ function createMessageHandler(
 
     // 各 URL を処理
     for (const url of result.data) {
-      await processEventExtraction(message.content, embeds, url);
+      await processEventExtraction(message, message.content, embeds, url);
     }
   };
 }
 
 /**
- * Discord メッセージからイベント情報を抽出する
+ * Discord メッセージからイベント情報を抽出し、Google Calendar に登録する
+ * @param message Discord メッセージ（リアクション追加用）
  * @param content メッセージ本文
  * @param embeds 埋め込み情報
  * @param url X/Twitter URL
  */
 async function processEventExtraction(
+  message: Message,
   content: string,
   embeds: Embed[],
   url: string
@@ -128,7 +131,21 @@ async function processEventExtraction(
     },
   });
 
-  // TODO: Step 3b で Google Calendar に登録
+  // Google Calendar に登録
+  const calendarResult = await createCalendarEvent(eventResult.data);
+  if (!calendarResult.success) {
+    // 失敗時はサイレント（ログは calendarService で出力済み）
+    return;
+  }
+
+  // 成功時: 📅リアクションを追加
+  try {
+    await message.react('📅');
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      logger.warn('リアクションの追加に失敗しました', { error: error.message });
+    }
+  }
 }
 
 /**
