@@ -1,0 +1,210 @@
+/**
+ * 確認待ちイベントのストア
+ * メモリ内で管理（再起動で消える想定）
+ */
+
+import type { PendingEvent } from '../types/index.js';
+import { logger } from '../utils/logger.js';
+
+/** タイムアウト時間（ミリ秒）: 10分 */
+const TIMEOUT_MS = 10 * 60 * 1000;
+
+/** クリーンアップ間隔（ミリ秒）: 1分 */
+const CLEANUP_INTERVAL_MS = 60 * 1000;
+
+/** イベントIDから PendingEvent を引く Map */
+const pendingEvents = new Map<string, PendingEvent>();
+
+/** 確認メッセージIDからイベントIDを引く逆引き Map */
+const messageToEventId = new Map<string, string>();
+
+/** クリーンアップタイマーのID */
+let cleanupTimerId: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * UUID を生成する
+ */
+function generateEventId(): string {
+  return crypto.randomUUID();
+}
+
+/**
+ * 確認待ちイベントを追加する
+ * @param pendingEvent 追加するイベント情報
+ * @returns 生成されたイベントID
+ */
+export function addPendingEvent(
+  pendingEvent: Omit<PendingEvent, 'createdAt'>
+): string {
+  const eventId = generateEventId();
+  const fullEvent: PendingEvent = {
+    ...pendingEvent,
+    createdAt: Date.now(),
+  };
+
+  pendingEvents.set(eventId, fullEvent);
+  messageToEventId.set(pendingEvent.confirmationMessageId, eventId);
+
+  logger.debug('確認待ちイベントを追加しました', {
+    eventId,
+    confirmationMessageId: pendingEvent.confirmationMessageId,
+    userId: pendingEvent.userId,
+  });
+
+  return eventId;
+}
+
+/**
+ * イベントIDで確認待ちイベントを取得する
+ * @param eventId イベントID
+ * @returns PendingEvent または undefined
+ */
+export function getPendingEvent(eventId: string): PendingEvent | undefined {
+  return pendingEvents.get(eventId);
+}
+
+/**
+ * 確認メッセージIDからイベントIDを取得する
+ * @param messageId 確認メッセージID
+ * @returns イベントID または undefined
+ */
+export function getEventIdByMessageId(messageId: string): string | undefined {
+  return messageToEventId.get(messageId);
+}
+
+/**
+ * 確認メッセージIDから確認待ちイベントを取得する
+ * @param messageId 確認メッセージID
+ * @returns PendingEvent または undefined
+ */
+export function getPendingEventByMessageId(
+  messageId: string
+): PendingEvent | undefined {
+  const eventId = messageToEventId.get(messageId);
+  if (eventId === undefined) {
+    return undefined;
+  }
+  return pendingEvents.get(eventId);
+}
+
+/**
+ * 確認待ちイベントを削除する
+ * @param eventId イベントID
+ * @returns 削除に成功した場合は true
+ */
+export function removePendingEvent(eventId: string): boolean {
+  const event = pendingEvents.get(eventId);
+  if (event === undefined) {
+    return false;
+  }
+
+  messageToEventId.delete(event.confirmationMessageId);
+  pendingEvents.delete(eventId);
+
+  logger.debug('確認待ちイベントを削除しました', { eventId });
+
+  return true;
+}
+
+/**
+ * 確認待ちイベントを更新する（修正機能用）
+ * 古いメッセージIDの逆引きを削除し、新しいメッセージIDで登録する
+ * @param eventId イベントID
+ * @param updates 更新内容
+ * @returns 更新に成功した場合は true
+ */
+export function updatePendingEvent(
+  eventId: string,
+  updates: Partial<Pick<PendingEvent, 'eventInfo' | 'confirmationMessageId'>>
+): boolean {
+  const event = pendingEvents.get(eventId);
+  if (event === undefined) {
+    return false;
+  }
+
+  // 確認メッセージIDが変わる場合は逆引きMapを更新
+  if (
+    updates.confirmationMessageId !== undefined &&
+    updates.confirmationMessageId !== event.confirmationMessageId
+  ) {
+    messageToEventId.delete(event.confirmationMessageId);
+    messageToEventId.set(updates.confirmationMessageId, eventId);
+  }
+
+  // イベント情報を更新
+  const updatedEvent: PendingEvent = {
+    ...event,
+    ...updates,
+  };
+  pendingEvents.set(eventId, updatedEvent);
+
+  logger.debug('確認待ちイベントを更新しました', { eventId });
+
+  return true;
+}
+
+/**
+ * タイムアウトした確認待ちイベントをクリーンアップする
+ */
+function cleanupExpiredEvents(): void {
+  const now = Date.now();
+  const expiredEventIds: string[] = [];
+
+  for (const [eventId, event] of pendingEvents) {
+    if (now - event.createdAt > TIMEOUT_MS) {
+      expiredEventIds.push(eventId);
+    }
+  }
+
+  for (const eventId of expiredEventIds) {
+    removePendingEvent(eventId);
+    logger.info('タイムアウトした確認待ちイベントを削除しました', { eventId });
+  }
+
+  if (expiredEventIds.length > 0) {
+    logger.debug('クリーンアップ完了', {
+      removedCount: expiredEventIds.length,
+      remainingCount: pendingEvents.size,
+    });
+  }
+}
+
+/**
+ * 定期クリーンアップを開始する
+ */
+export function startCleanupTimer(): void {
+  if (cleanupTimerId !== null) {
+    logger.warn('クリーンアップタイマーは既に起動しています');
+    return;
+  }
+
+  cleanupTimerId = setInterval(cleanupExpiredEvents, CLEANUP_INTERVAL_MS);
+  logger.info('確認待ちイベントのクリーンアップタイマーを開始しました', {
+    intervalMs: CLEANUP_INTERVAL_MS,
+    timeoutMs: TIMEOUT_MS,
+  });
+}
+
+/**
+ * 定期クリーンアップを停止する
+ */
+export function stopCleanupTimer(): void {
+  if (cleanupTimerId !== null) {
+    clearInterval(cleanupTimerId);
+    cleanupTimerId = null;
+    logger.info('確認待ちイベントのクリーンアップタイマーを停止しました');
+  }
+}
+
+/**
+ * イベントがタイムアウトしているかどうかを確認する
+ * @param eventId イベントID
+ * @returns タイムアウトしている場合は true、イベントが存在しない場合も true
+ */
+export function isEventExpired(eventId: string): boolean {
+  const event = pendingEvents.get(eventId);
+  if (event === undefined) {
+    return true;
+  }
+  return Date.now() - event.createdAt > TIMEOUT_MS;
+}

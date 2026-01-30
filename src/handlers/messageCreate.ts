@@ -2,15 +2,248 @@
  * messageCreate イベントハンドラ
  */
 
-import type { Client, Embed, Message } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  type Client,
+  type Embed,
+  type Message,
+} from 'discord.js';
 import { extractXUrls } from '../services/urlExtractor.js';
-import { extractEventFromMessage } from '../services/eventExtractor.js';
-import { createCalendarEvent } from '../services/calendarService.js';
+import {
+  extractEventFromMessage,
+  reExtractEventWithCorrection,
+} from '../services/eventExtractor.js';
 import { logger } from '../utils/logger.js';
+import type { EventInfo, SerializedEmbed } from '../types/index.js';
+import {
+  addPendingEvent,
+  getEventIdByMessageId,
+  getPendingEvent,
+  updatePendingEvent,
+} from '../stores/pendingEvents.js';
 
 /** 指定ミリ秒待機する */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Discord Embed をシリアライズ可能な形式に変換する
+ */
+function serializeEmbed(embed: Embed): SerializedEmbed {
+  return {
+    title: embed.title,
+    description: embed.description,
+    url: embed.url,
+    author: embed.author?.name !== undefined ? { name: embed.author.name } : null,
+    fields: embed.fields.map((f) => ({ name: f.name, value: f.value })),
+    image: embed.image?.url !== undefined ? { url: embed.image.url } : null,
+    thumbnail: embed.thumbnail?.url !== undefined ? { url: embed.thumbnail.url } : null,
+  };
+}
+
+/**
+ * 日時を日本語形式でフォーマットする
+ */
+function formatDateTimeJapanese(date: Date, isAllDay: boolean): string {
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  };
+
+  if (!isAllDay) {
+    options.hour = '2-digit';
+    options.minute = '2-digit';
+  }
+
+  return date.toLocaleString('ja-JP', options);
+}
+
+/**
+ * イベント情報から確認メッセージの内容を生成する
+ */
+function buildConfirmationContent(eventInfo: EventInfo, originalUrl: string): string {
+  const lines: string[] = ['📋 **イベント情報を検出しました**\n'];
+
+  lines.push(`**タイトル:** ${eventInfo.title}`);
+
+  const isAllDay = eventInfo.isAllDay === true;
+  if (isAllDay) {
+    const startDateStr = formatDateTimeJapanese(eventInfo.startTime, true);
+    lines.push(`**日付:** ${startDateStr} ※時間不明`);
+  } else {
+    const startStr = formatDateTimeJapanese(eventInfo.startTime, false);
+    const endStr = formatDateTimeJapanese(eventInfo.endTime, false);
+    lines.push(`**日時:** ${startStr} 〜 ${endStr}`);
+  }
+
+  if (eventInfo.location !== undefined && eventInfo.location !== '') {
+    lines.push(`**場所:** ${eventInfo.location}`);
+  }
+
+  lines.push('');
+  lines.push(`元のツイート: ${originalUrl}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * 確認メッセージを送信する
+ */
+async function sendConfirmationMessage(
+  message: Message,
+  eventInfo: EventInfo,
+  originalUrl: string,
+  content: string,
+  embeds: Embed[]
+): Promise<void> {
+  // 確認メッセージの内容を生成
+  const confirmationContent = buildConfirmationContent(eventInfo, originalUrl);
+
+  // まず仮のIDでボタンを作成（後で更新）
+  const tempId = 'temp';
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`event_register_${tempId}`)
+      .setLabel('登録する')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`event_cancel_${tempId}`)
+      .setLabel('キャンセル')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  // 確認メッセージを送信
+  const confirmationMessage = await message.reply({
+    content: confirmationContent,
+    components: [row],
+  });
+
+  // pendingEvents に登録して eventId を取得
+  const eventId = addPendingEvent({
+    eventInfo,
+    userId: message.author.id,
+    confirmationMessageId: confirmationMessage.id,
+    originalContent: content,
+    originalEmbeds: embeds.map(serializeEmbed),
+    originalUrl,
+  });
+
+  // 正しい eventId でボタンを更新
+  const updatedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`event_register_${eventId}`)
+      .setLabel('登録する')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`event_cancel_${eventId}`)
+      .setLabel('キャンセル')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  await confirmationMessage.edit({
+    content: confirmationContent,
+    components: [updatedRow],
+  });
+
+  logger.info('確認メッセージを送信しました', {
+    eventId,
+    messageId: confirmationMessage.id,
+    title: eventInfo.title,
+  });
+}
+
+/**
+ * 確認メッセージへの返信（修正指示）を処理する
+ */
+async function handleCorrectionReply(
+  message: Message,
+  eventId: string
+): Promise<void> {
+  const pending = getPendingEvent(eventId);
+  if (pending === undefined) {
+    logger.warn('修正対象のイベントが見つかりません', { eventId });
+    return;
+  }
+
+  // 投稿者以外は修正不可
+  if (message.author.id !== pending.userId) {
+    await message.reply({
+      content: '❌ 修正は元の投稿者のみが行えます',
+    });
+    return;
+  }
+
+  const correction = message.content;
+
+  logger.info('修正指示を受け付けました', {
+    eventId,
+    correction,
+  });
+
+  // 修正指示を含めて再抽出
+  const result = await reExtractEventWithCorrection(
+    pending.originalContent,
+    pending.originalEmbeds,
+    pending.originalUrl,
+    correction
+  );
+
+  if (!result.success) {
+    await message.reply({
+      content: `❌ 再抽出に失敗しました: ${result.reason}`,
+    });
+    return;
+  }
+
+  // 新しい確認メッセージを送信
+  const confirmationContent = buildConfirmationContent(result.data, pending.originalUrl);
+
+  const newRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`event_register_${eventId}`)
+      .setLabel('登録する')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`event_cancel_${eventId}`)
+      .setLabel('キャンセル')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const newConfirmationMessage = await message.reply({
+    content: confirmationContent,
+    components: [newRow],
+  });
+
+  // 古い確認メッセージのボタンを無効化
+  try {
+    const channel = message.channel;
+    const oldMessage = await channel.messages.fetch(pending.confirmationMessageId);
+    await oldMessage.edit({
+      content: oldMessage.content + '\n\n*（修正されました）*',
+      components: [],
+    });
+  } catch (error: unknown) {
+    logger.warn('古い確認メッセージの更新に失敗しました', {
+      messageId: pending.confirmationMessageId,
+    });
+  }
+
+  // pendingEvent を更新
+  updatePendingEvent(eventId, {
+    eventInfo: result.data,
+    confirmationMessageId: newConfirmationMessage.id,
+  });
+
+  logger.info('修正された確認メッセージを送信しました', {
+    eventId,
+    title: result.data.title,
+  });
 }
 
 /**
@@ -42,6 +275,15 @@ function createMessageHandler(
     // Botからのメッセージは無視
     if (message.author.bot) {
       return;
+    }
+
+    // 確認メッセージへの返信かどうかをチェック
+    if (message.reference?.messageId !== undefined) {
+      const eventId = getEventIdByMessageId(message.reference.messageId);
+      if (eventId !== undefined) {
+        await handleCorrectionReply(message, eventId);
+        return;
+      }
     }
 
     // X/Twitter URL を抽出
@@ -102,8 +344,8 @@ function createMessageHandler(
 }
 
 /**
- * Discord メッセージからイベント情報を抽出し、Google Calendar に登録する
- * @param message Discord メッセージ（リアクション追加用）
+ * Discord メッセージからイベント情報を抽出し、確認メッセージを送信する
+ * @param message Discord メッセージ
  * @param content メッセージ本文
  * @param embeds 埋め込み情報
  * @param url X/Twitter URL
@@ -124,21 +366,8 @@ async function processEventExtraction(
     return;
   }
 
-  // Google Calendar に登録
-  const calendarResult = await createCalendarEvent(eventResult.data);
-  if (!calendarResult.success) {
-    // 失敗時はサイレント（ログは calendarService で出力済み）
-    return;
-  }
-
-  // 成功時: 📅リアクションを追加
-  try {
-    await message.react('📅');
-  } catch (error: unknown) {
-    if (error instanceof Error) {
-      logger.warn('リアクションの追加に失敗しました', { error: error.message });
-    }
-  }
+  // 確認メッセージを送信
+  await sendConfirmationMessage(message, eventResult.data, url, content, embeds);
 }
 
 /**

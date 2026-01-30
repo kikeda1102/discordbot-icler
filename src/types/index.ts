@@ -58,3 +58,32 @@ export interface ImageData {
   base64Data: string;
 }
 
+/** Discord Embed のシリアライズ可能な形式 */
+export interface SerializedEmbed {
+  title: string | null;
+  description: string | null;
+  url: string | null;
+  author: { name: string } | null;
+  fields: Array<{ name: string; value: string }>;
+  image: { url: string } | null;
+  thumbnail: { url: string } | null;
+}
+
+/** 確認待ちのイベント情報 */
+export interface PendingEvent {
+  /** 抽出されたイベント情報 */
+  eventInfo: EventInfo;
+  /** 元の投稿者のユーザーID（承認者制限用） */
+  userId: string;
+  /** 作成日時のタイムスタンプ（タイムアウト用） */
+  createdAt: number;
+  /** 確認メッセージのID */
+  confirmationMessageId: string;
+  /** 元のメッセージ本文（再抽出用） */
+  originalContent: string;
+  /** 元のembed情報（再抽出用） */
+  originalEmbeds: SerializedEmbed[];
+  /** 元のURL */
+  originalUrl: string;
+}
+

@@ -5,6 +5,8 @@
 import { getConfig } from './config/index.js';
 import { createDiscordClient, startBot } from './client/index.js';
 import { registerMessageHandler } from './handlers/messageCreate.js';
+import { registerInteractionHandler } from './handlers/interactionCreate.js';
+import { startCleanupTimer } from './stores/pendingEvents.js';
 import { logger } from './utils/logger.js';
 
 async function main(): Promise<void> {
@@ -26,6 +28,10 @@ async function main(): Promise<void> {
 
   // イベントハンドラを登録
   registerMessageHandler(client, config.discord.channelIds);
+  registerInteractionHandler(client);
+
+  // 確認待ちイベントのクリーンアップタイマーを開始
+  startCleanupTimer();
 
   logger.info('Discord Bot の起動が完了しました');
 }

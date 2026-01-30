@@ -566,3 +566,261 @@ function isValidParsedEventInfo(value: unknown): value is ParsedEventInfo {
     typeof value.description === "string"
   );
 }
+
+/**
+ * 修正用のプロンプトを生成する
+ * @param originalPrompt 元のプロンプト
+ * @param correction ユーザーからの修正指示
+ * @returns 修正用プロンプト
+ */
+export function buildCorrectionPrompt(
+  originalPrompt: string,
+  correction: string
+): string {
+  return `${originalPrompt}
+
+---
+
+**ユーザーからの修正指示:**
+${correction}
+
+上記の修正指示を考慮して、イベント情報を再度抽出してください。`;
+}
+
+/**
+ * Discord embed から画像URLを抽出する（export版）
+ * @param embeds Discord embed の配列
+ * @returns 画像URLの配列
+ */
+export function extractImageUrlsFromEmbeds(embeds: Embed[]): string[] {
+  return extractImageUrls(embeds);
+}
+
+/**
+ * 入力情報を整形してユーザーメッセージを生成する
+ * @param content メッセージ本文
+ * @param embedTexts 整形済み embed テキストの配列
+ * @param originalUrl 元のURL
+ * @returns 整形されたユーザーメッセージ
+ */
+export function buildUserMessage(
+  content: string,
+  embedTexts: string[],
+  originalUrl: string
+): string {
+  return `**Discordメッセージ本文:**
+${content}
+
+**埋め込み情報（embed）:**
+${embedTexts.length > 0 ? embedTexts.join("\n\n---\n\n") : "（なし）"}
+
+**元のURL:** ${originalUrl}`;
+}
+
+/**
+ * Discord embed を文字列形式に変換する
+ * @param embeds Discord embed の配列
+ * @returns 文字列形式の embed 情報の配列
+ */
+export function formatEmbedsToTexts(embeds: Embed[]): string[] {
+  return embeds
+    .map((embed) => {
+      const parts: string[] = [];
+      if (embed.author?.name !== undefined) {
+        parts.push(`投稿者: ${embed.author.name}`);
+      }
+      if (embed.title !== null) {
+        parts.push(`タイトル: ${embed.title}`);
+      }
+      if (embed.description !== null) {
+        parts.push(`内容: ${embed.description}`);
+      }
+      if (embed.fields.length > 0) {
+        const fieldTexts = embed.fields.map((f) => `${f.name}: ${f.value}`);
+        parts.push(`フィールド:\n${fieldTexts.join("\n")}`);
+      }
+      return parts.join("\n");
+    })
+    .filter((text) => text.length > 0);
+}
+
+/**
+ * SerializedEmbed を文字列形式に変換する
+ * @param embeds SerializedEmbed の配列
+ * @returns 文字列形式の embed 情報の配列
+ */
+export function formatSerializedEmbedsToTexts(
+  embeds: Array<{
+    title: string | null;
+    description: string | null;
+    author: { name: string } | null;
+    fields: Array<{ name: string; value: string }>;
+  }>
+): string[] {
+  return embeds
+    .map((embed) => {
+      const parts: string[] = [];
+      if (embed.author?.name !== undefined) {
+        parts.push(`投稿者: ${embed.author.name}`);
+      }
+      if (embed.title !== null) {
+        parts.push(`タイトル: ${embed.title}`);
+      }
+      if (embed.description !== null) {
+        parts.push(`内容: ${embed.description}`);
+      }
+      if (embed.fields.length > 0) {
+        const fieldTexts = embed.fields.map((f) => `${f.name}: ${f.value}`);
+        parts.push(`フィールド:\n${fieldTexts.join("\n")}`);
+      }
+      return parts.join("\n");
+    })
+    .filter((text) => text.length > 0);
+}
+
+/**
+ * 修正指示を含めてイベント情報を再抽出する
+ * @param content 元のメッセージ本文
+ * @param embeds シリアライズ済み embed 情報
+ * @param originalUrl 元のURL
+ * @param correction ユーザーからの修正指示
+ * @returns 再抽出されたイベント情報
+ */
+export async function reExtractEventWithCorrection(
+  content: string,
+  embeds: Array<{
+    title: string | null;
+    description: string | null;
+    url: string | null;
+    author: { name: string } | null;
+    fields: Array<{ name: string; value: string }>;
+    image: { url: string } | null;
+    thumbnail: { url: string } | null;
+  }>,
+  originalUrl: string,
+  correction: string
+): Promise<Result<EventInfo>> {
+  // embed から画像URLを抽出
+  const imageUrls: string[] = [];
+  for (const embed of embeds) {
+    if (embed.image?.url !== undefined) {
+      imageUrls.push(embed.image.url);
+    }
+    if (embed.thumbnail?.url !== undefined) {
+      imageUrls.push(embed.thumbnail.url);
+    }
+  }
+
+  // 画像を取得してBase64エンコード
+  const images = await fetchMultipleImages(imageUrls);
+
+  // embed 情報を文字列化
+  const embedTexts = formatSerializedEmbedsToTexts(embeds);
+  const userMessage = buildUserMessage(content, embedTexts, originalUrl);
+
+  // 現在日時を日本時間で取得
+  const now = new Date();
+  const currentDate = now.toLocaleString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  // 画像があるかどうかでプロンプトを切り替え
+  const hasImages = images.length > 0;
+  const basePrompt = buildExtractionPrompt(currentDate, hasImages);
+  const fullPrompt = buildCorrectionPrompt(
+    `${basePrompt}
+
+---
+
+${userMessage}`,
+    correction
+  );
+
+  logger.info("修正指示を含めてイベント情報を再抽出します", {
+    url: originalUrl,
+    correction,
+  });
+
+  // Gemini API を呼び出し
+  const apiResult = await callGeminiApi(
+    fullPrompt,
+    hasImages ? images : undefined
+  );
+  if (!apiResult.success) {
+    logger.error("Gemini API 呼び出しに失敗しました", {
+      url: originalUrl,
+      reason: apiResult.reason,
+    });
+    return apiResult;
+  }
+
+  // JSONをパース
+  const parseResult = parseEventJson(apiResult.data);
+  if (!parseResult.success) {
+    return parseResult;
+  }
+
+  const parsed = parseResult.data;
+
+  // イベント情報でない場合はスキップ
+  if (!parsed.isEvent) {
+    logger.info("イベント情報ではないためスキップします", { url: originalUrl });
+    return {
+      success: false,
+      reason: "イベント情報が含まれていません",
+    };
+  }
+
+  // Date オブジェクトに変換
+  const startTime = new Date(parsed.startTime);
+  const endTime = new Date(parsed.endTime);
+
+  // 日付の妥当性チェック
+  if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+    logger.error("抽出された日時が不正です", {
+      url: originalUrl,
+      startTime: parsed.startTime,
+      endTime: parsed.endTime,
+    });
+    return {
+      success: false,
+      reason: "抽出された日時の形式が不正です",
+    };
+  }
+
+  // 終日イベントかどうか
+  const isAllDay = !parsed.hasTime;
+
+  // EventInfo を構築
+  const eventInfo: EventInfo = {
+    title: parsed.title,
+    description: parsed.description,
+    startTime,
+    endTime,
+    url: originalUrl,
+    isAllDay,
+  };
+
+  // location は空文字でないときのみ設定
+  if (parsed.location !== "") {
+    eventInfo.location = parsed.location;
+  }
+
+  logger.info("修正されたイベント情報を抽出しました", {
+    url: originalUrl,
+    title: eventInfo.title,
+    startTime: eventInfo.startTime.toISOString(),
+    endTime: eventInfo.endTime.toISOString(),
+    isAllDay,
+  });
+
+  return {
+    success: true,
+    data: eventInfo,
+  };
+}
