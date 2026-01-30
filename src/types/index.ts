@@ -69,6 +69,14 @@ export interface SerializedEmbed {
   thumbnail: { url: string } | null;
 }
 
+/** 類似イベント情報（重複チェック用） */
+export interface SimilarEvent {
+  id: string;
+  title: string;
+  startTime: string;
+  location?: string;
+}
+
 /** 確認待ちのイベント情報 */
 export interface PendingEvent {
   /** 抽出されたイベント情報 */

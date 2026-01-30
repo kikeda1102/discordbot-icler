@@ -3,8 +3,19 @@
  * ボタンクリック処理を担当
  */
 
-import type { ButtonInteraction, Client, Interaction } from 'discord.js';
-import { createCalendarEvent } from '../services/calendarService.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  type ButtonInteraction,
+  type Client,
+  type Interaction,
+} from 'discord.js';
+import {
+  createCalendarEvent,
+  findSimilarEvents,
+} from '../services/calendarService.js';
+import type { SimilarEvent } from '../types/index.js';
 import {
   getPendingEvent,
   removePendingEvent,
@@ -16,6 +27,8 @@ import { logger } from '../utils/logger.js';
 const BUTTON_PREFIX = {
   REGISTER: 'event_register_',
   CANCEL: 'event_cancel_',
+  FORCE_REGISTER: 'event_force_register_',
+  FORCE_CANCEL: 'event_force_cancel_',
   HELP: 'event_help',
 } as const;
 
@@ -58,6 +71,18 @@ async function handleButtonClick(interaction: Interaction): Promise<void> {
     return;
   }
 
+  // 強制登録ボタンの処理（類似イベント警告後）
+  if (customId.startsWith(BUTTON_PREFIX.FORCE_REGISTER)) {
+    await handleForceRegisterButton(interaction, customId);
+    return;
+  }
+
+  // 強制キャンセルボタンの処理（類似イベント警告後）
+  if (customId.startsWith(BUTTON_PREFIX.FORCE_CANCEL)) {
+    await handleForceCancelButton(interaction, customId);
+    return;
+  }
+
   // ヘルプボタンの処理
   if (customId === BUTTON_PREFIX.HELP) {
     await handleHelpButton(interaction);
@@ -76,13 +101,25 @@ async function handleHelpButton(interaction: ButtonInteraction): Promise<void> {
 }
 
 /**
+ * 類似イベントの警告メッセージを生成
+ */
+function formatSimilarEventsWarning(similarEvents: SimilarEvent[]): string {
+  const eventLines = similarEvents.map((event) => {
+    const locationText =
+      event.location !== undefined ? `\n  場所: ${event.location}` : '';
+    return `• **${event.title}** (${event.startTime})${locationText}`;
+  });
+
+  return `⚠️ 以下の類似イベントが既に登録されています:\n\n${eventLines.join('\n\n')}\n\nそれでも登録しますか？`;
+}
+
+/**
  * 登録ボタンの処理
  */
 async function handleRegisterButton(
   interaction: ButtonInteraction,
   customId: string
 ): Promise<void> {
-
   const eventId = customId.slice(BUTTON_PREFIX.REGISTER.length);
   const pending = getPendingEvent(eventId);
 
@@ -114,12 +151,72 @@ async function handleRegisterButton(
     return;
   }
 
-  // カレンダーに登録
+  // 類似イベントをチェック
+  await interaction.deferUpdate();
+
+  const similarResult = await findSimilarEvents(pending.eventInfo);
+
+  if (!similarResult.success) {
+    logger.warn('類似イベント検索に失敗しましたが、登録を続行します', {
+      reason: similarResult.reason,
+    });
+    // 検索に失敗した場合は警告なしで登録を続行
+    await registerEventToCalendar(interaction, eventId, pending);
+    return;
+  }
+
+  // 類似イベントがある場合は警告を表示
+  if (similarResult.data.length > 0) {
+    const warningMessage = formatSimilarEventsWarning(similarResult.data);
+
+    const forceRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`${BUTTON_PREFIX.FORCE_REGISTER}${eventId}`)
+        .setLabel('それでも登録')
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(`${BUTTON_PREFIX.FORCE_CANCEL}${eventId}`)
+        .setLabel('キャンセル')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    await interaction.editReply({
+      content: warningMessage,
+      components: [forceRow],
+    });
+
+    logger.info('類似イベントの警告を表示しました', {
+      eventId,
+      similarCount: similarResult.data.length,
+    });
+    return;
+  }
+
+  // 類似イベントがない場合は通常通り登録
+  await registerEventToCalendar(interaction, eventId, pending);
+}
+
+/**
+ * イベントをカレンダーに登録する共通処理
+ */
+async function registerEventToCalendar(
+  interaction: ButtonInteraction,
+  eventId: string,
+  pending: ReturnType<typeof getPendingEvent>
+): Promise<void> {
+  if (pending === undefined) {
+    await interaction.editReply({
+      content: '❌ このイベントは既に処理されたか、タイムアウトしました',
+      components: [],
+    });
+    return;
+  }
+
   const result = await createCalendarEvent(pending.eventInfo);
 
   if (result.success) {
     removePendingEvent(eventId);
-    await interaction.update({
+    await interaction.editReply({
       content: `✅ カレンダーに登録しました\n\n**${pending.eventInfo.title}**`,
       components: [],
     });
@@ -130,7 +227,7 @@ async function handleRegisterButton(
       userId: interaction.user.id,
     });
   } else {
-    await interaction.update({
+    await interaction.editReply({
       content: `❌ 登録に失敗しました: ${result.reason}`,
       components: [],
     });
@@ -140,6 +237,94 @@ async function handleRegisterButton(
       reason: result.reason,
     });
   }
+}
+
+/**
+ * 強制登録ボタンの処理（類似イベント警告後）
+ */
+async function handleForceRegisterButton(
+  interaction: ButtonInteraction,
+  customId: string
+): Promise<void> {
+  const eventId = customId.slice(BUTTON_PREFIX.FORCE_REGISTER.length);
+  const pending = getPendingEvent(eventId);
+
+  // イベントが見つからない場合
+  if (pending === undefined) {
+    await interaction.reply({
+      content: '❌ このイベントは既に処理されたか、タイムアウトしました',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // 投稿者以外はクリック不可
+  if (interaction.user.id !== pending.userId) {
+    await interaction.reply({
+      content: '❌ このボタンは投稿者のみがクリックできます',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // タイムアウトチェック
+  if (isEventExpired(eventId)) {
+    removePendingEvent(eventId);
+    await interaction.update({
+      content: '⏰ タイムアウトしました。もう一度投稿してください。',
+      components: [],
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+  await registerEventToCalendar(interaction, eventId, pending);
+
+  logger.info('類似イベント警告を無視して登録しました', {
+    eventId,
+    title: pending.eventInfo.title,
+  });
+}
+
+/**
+ * 強制キャンセルボタンの処理（類似イベント警告後）
+ */
+async function handleForceCancelButton(
+  interaction: ButtonInteraction,
+  customId: string
+): Promise<void> {
+  const eventId = customId.slice(BUTTON_PREFIX.FORCE_CANCEL.length);
+  const pending = getPendingEvent(eventId);
+
+  // イベントが見つからない場合
+  if (pending === undefined) {
+    await interaction.reply({
+      content: '❌ このイベントは既に処理されたか、タイムアウトしました',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // 投稿者以外はクリック不可
+  if (interaction.user.id !== pending.userId) {
+    await interaction.reply({
+      content: '❌ このボタンは投稿者のみがクリックできます',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  removePendingEvent(eventId);
+  await interaction.update({
+    content: '❌ キャンセルしました',
+    components: [],
+  });
+
+  logger.info('類似イベント警告後にキャンセルされました', {
+    eventId,
+    title: pending.eventInfo.title,
+    userId: interaction.user.id,
+  });
 }
 
 /**
