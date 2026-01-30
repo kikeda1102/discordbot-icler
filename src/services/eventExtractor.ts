@@ -439,6 +439,13 @@ function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
       };
     }
 
+    logger.debug("Gemini APIからの抽出結果", {
+      rawJson: cleanJson,
+      parsedStartTime: parsed.startTime,
+      parsedEndTime: parsed.endTime,
+      parsedTitle: parsed.title,
+    });
+
     return {
       success: true,
       data: parsed,

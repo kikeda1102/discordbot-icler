@@ -124,16 +124,6 @@ async function processEventExtraction(
     return;
   }
 
-  logger.info('イベント情報を抽出しました', {
-    url,
-    event: {
-      title: eventResult.data.title,
-      startTime: eventResult.data.startTime.toISOString(),
-      endTime: eventResult.data.endTime.toISOString(),
-      location: eventResult.data.location,
-    },
-  });
-
   // Google Calendar に登録
   const calendarResult = await createCalendarEvent(eventResult.data);
   if (!calendarResult.success) {
