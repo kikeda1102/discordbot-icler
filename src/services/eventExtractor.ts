@@ -4,7 +4,7 @@
  */
 
 import type { Embed } from "discord.js";
-import type { Result, EventInfo, ImageData, EmbedLike } from "../types/index.js";
+import type { Result, EventInfo, ImageData, EmbedLike, EmbedWithImage } from "../types/index.js";
 import { getConfig } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 import { fetchMultipleImages } from "./imageService.js";
@@ -324,11 +324,12 @@ function isGeminiResponse(value: unknown): value is GeminiResponse {
 }
 
 /**
- * Discord embed から画像URLを抽出する
- * @param embeds Discord embed の配列
+ * Embed から画像URLを抽出する
+ * Discord.js の Embed と SerializedEmbed の両方に対応
+ * @param embeds EmbedWithImage の配列
  * @returns 画像URLの配列
  */
-function extractImageUrls(embeds: Embed[]): string[] {
+function extractImageUrls(embeds: readonly EmbedWithImage[]): string[] {
   const urls: string[] = [];
 
   for (const embed of embeds) {
@@ -677,15 +678,7 @@ export async function reExtractEventWithCorrection(
   correction: string
 ): Promise<Result<EventInfo>> {
   // embed から画像URLを抽出
-  const imageUrls: string[] = [];
-  for (const embed of embeds) {
-    if (embed.image?.url !== undefined) {
-      imageUrls.push(embed.image.url);
-    }
-    if (embed.thumbnail?.url !== undefined) {
-      imageUrls.push(embed.thumbnail.url);
-    }
-  }
+  const imageUrls = extractImageUrls(embeds);
 
   // 画像を取得してBase64エンコード
   const images = await fetchMultipleImages(imageUrls);

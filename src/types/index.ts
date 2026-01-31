@@ -77,6 +77,12 @@ export interface EmbedLike {
   fields: ReadonlyArray<{ name: string; value: string }>;
 }
 
+/** Embed の画像URL抽出に必要な最小プロパティ */
+export interface EmbedWithImage {
+  image?: { url: string } | null;
+  thumbnail?: { url: string } | null;
+}
+
 /** 類似イベント情報（重複チェック用） */
 export interface SimilarEvent {
   id: string;
