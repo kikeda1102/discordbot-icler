@@ -16,6 +16,7 @@ import {
   createCalendarEvent,
   findSimilarEvents,
 } from '../services/calendarService.js';
+import { getConfig } from '../config/index.js';
 import type { SimilarEvent } from '../types/index.js';
 import {
   getPendingEvent,
@@ -33,9 +34,15 @@ const BUTTON_PREFIX = {
   HELP: 'event_help',
 } as const;
 
-/** Google Calendar のリンク */
-const CALENDAR_URL =
-  'https://calendar.google.com/calendar/u/5?cid=M2Y0NWM1MTIyNjJjYzZkZjU2MDczNTdkOGVlMDhhMjdlMjdiMjMwMDY1YWUwYzI2OTA3ZTUyYWRkODg3ZTY2ZkBncm91cC5jYWxlbmRhci5nb29nbGUuY29t';
+/**
+ * Google Calendar の公開リンクを生成する
+ * calendarId を Base64 エンコードして cid パラメータに設定
+ */
+function getCalendarUrl(): string {
+  const calendarId = getConfig().google.calendarId;
+  const encodedId = Buffer.from(calendarId).toString('base64');
+  return `https://calendar.google.com/calendar/u/0?cid=${encodedId}`;
+}
 
 /** 使い方の説明テキスト */
 const HELP_TEXT = `📖 **使い方**
@@ -246,7 +253,7 @@ async function registerEventToCalendar(
 
     // Ephemeral メッセージで通知
     await interaction.followUp({
-      content: `✅ カレンダーに登録しました\n\n**${pending.eventInfo.title}**\n\n📅 [カレンダーを開く](${CALENDAR_URL})`,
+      content: `✅ カレンダーに登録しました\n\n**${pending.eventInfo.title}**\n\n📅 [カレンダーを開く](${getCalendarUrl()})`,
       flags: MessageFlags.Ephemeral,
     });
 
