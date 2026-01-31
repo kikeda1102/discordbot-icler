@@ -365,14 +365,7 @@ export async function extractEventFromMessage(
 
   // embed 情報を文字列化
   const embedTexts = formatEmbedsToTexts(embeds);
-
-  const userMessage = `**Discordメッセージ本文:**
-${content}
-
-**埋め込み情報（embed）:**
-${embedTexts.length > 0 ? embedTexts.join("\n\n---\n\n") : "（なし）"}
-
-**元のURL:** ${originalUrl}`;
+  const userMessage = buildUserMessage(content, embedTexts, originalUrl);
 
   // 現在日時を日本時間で取得
   const now = new Date();
