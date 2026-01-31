@@ -598,15 +598,6 @@ ${correction}
 }
 
 /**
- * Discord embed から画像URLを抽出する（export版）
- * @param embeds Discord embed の配列
- * @returns 画像URLの配列
- */
-export function extractImageUrlsFromEmbeds(embeds: Embed[]): string[] {
-  return extractImageUrls(embeds);
-}
-
-/**
  * 入力情報を整形してユーザーメッセージを生成する
  * @param content メッセージ本文
  * @param embedTexts 整形済み embed テキストの配列
