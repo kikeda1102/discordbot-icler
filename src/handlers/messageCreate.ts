@@ -16,6 +16,7 @@ import {
   reExtractEventWithCorrection,
 } from '../services/eventExtractor.js';
 import { logger } from '../utils/logger.js';
+import { formatDateTimeJapanese } from '../utils/dateFormatter.js';
 import type { EventInfo, SerializedEmbed } from '../types/index.js';
 import {
   addPendingEvent,
@@ -42,26 +43,6 @@ function serializeEmbed(embed: Embed): SerializedEmbed {
     image: embed.image?.url !== undefined ? { url: embed.image.url } : null,
     thumbnail: embed.thumbnail?.url !== undefined ? { url: embed.thumbnail.url } : null,
   };
-}
-
-/**
- * 日時を日本語形式でフォーマットする
- */
-function formatDateTimeJapanese(date: Date, isAllDay: boolean): string {
-  const options: Intl.DateTimeFormatOptions = {
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'short',
-  };
-
-  if (!isAllDay) {
-    options.hour = '2-digit';
-    options.minute = '2-digit';
-  }
-
-  return date.toLocaleString('ja-JP', options);
 }
 
 /**
