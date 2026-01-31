@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { formatEmbedsToTexts } from "../src/services/eventExtractor.js";
-import type { EmbedLike } from "../src/types/index.js";
+import {
+  formatEmbedsToTexts,
+  parseEventJson,
+  isValidParsedEventInfo,
+  buildEventInfoFromParsed,
+} from "../src/services/eventExtractor.js";
+import type { EmbedLike, ParsedEventInfo } from "../src/types/index.js";
 
 describe("formatEmbedsToTexts", () => {
   it("EmbedLike 形式の embed を正しくフォーマットする", () => {
@@ -95,5 +100,316 @@ describe("formatEmbedsToTexts", () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toContain("投稿者: シリアライズ投稿者");
     expect(result[0]).toContain("タイトル: シリアライズタイトル");
+  });
+});
+
+describe("isValidParsedEventInfo", () => {
+  it("有効なオブジェクトの場合 true を返す", () => {
+    const validObject: ParsedEventInfo = {
+      isEvent: true,
+      hasTime: true,
+      title: "テストイベント",
+      startTime: "2025-02-15T22:00:00+09:00",
+      endTime: "2025-02-16T05:00:00+09:00",
+      location: "渋谷",
+      description: "テスト説明",
+    };
+
+    expect(isValidParsedEventInfo(validObject)).toBe(true);
+  });
+
+  it("null の場合 false を返す", () => {
+    expect(isValidParsedEventInfo(null)).toBe(false);
+  });
+
+  it("undefined の場合 false を返す", () => {
+    expect(isValidParsedEventInfo(undefined)).toBe(false);
+  });
+
+  it("空オブジェクトの場合 false を返す", () => {
+    expect(isValidParsedEventInfo({})).toBe(false);
+  });
+
+  it("プロパティが不足している場合 false を返す", () => {
+    const partialObject = {
+      isEvent: true,
+      hasTime: true,
+      title: "テスト",
+      // startTime, endTime, location, description が不足
+    };
+
+    expect(isValidParsedEventInfo(partialObject)).toBe(false);
+  });
+
+  it("型が違う場合 false を返す（isEvent が文字列）", () => {
+    const wrongTypeObject = {
+      isEvent: "yes", // boolean ではなく string
+      hasTime: true,
+      title: "テスト",
+      startTime: "2025-02-15T22:00:00+09:00",
+      endTime: "2025-02-16T05:00:00+09:00",
+      location: "渋谷",
+      description: "説明",
+    };
+
+    expect(isValidParsedEventInfo(wrongTypeObject)).toBe(false);
+  });
+
+  it("型が違う場合 false を返す（title が数値）", () => {
+    const wrongTypeObject = {
+      isEvent: true,
+      hasTime: true,
+      title: 123, // string ではなく number
+      startTime: "2025-02-15T22:00:00+09:00",
+      endTime: "2025-02-16T05:00:00+09:00",
+      location: "渋谷",
+      description: "説明",
+    };
+
+    expect(isValidParsedEventInfo(wrongTypeObject)).toBe(false);
+  });
+});
+
+describe("parseEventJson", () => {
+  it("有効な JSON をパースできる", () => {
+    const jsonString = JSON.stringify({
+      isEvent: true,
+      hasTime: true,
+      title: "テストイベント",
+      startTime: "2025-02-15T22:00:00+09:00",
+      endTime: "2025-02-16T05:00:00+09:00",
+      location: "渋谷",
+      description: "テスト説明",
+    });
+
+    const result = parseEventJson(jsonString);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.title).toBe("テストイベント");
+      expect(result.data.isEvent).toBe(true);
+    }
+  });
+
+  it("コードブロック付きの JSON をパースできる", () => {
+    const jsonString = `\`\`\`json
+{
+  "isEvent": true,
+  "hasTime": false,
+  "title": "終日イベント",
+  "startTime": "2025-03-01",
+  "endTime": "2025-03-02",
+  "location": "",
+  "description": "終日のイベントです"
+}
+\`\`\``;
+
+    const result = parseEventJson(jsonString);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.title).toBe("終日イベント");
+      expect(result.data.hasTime).toBe(false);
+    }
+  });
+
+  it("不正な JSON でエラーを返す", () => {
+    const jsonString = "{invalid json}";
+
+    const result = parseEventJson(jsonString);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toContain("JSONパースエラー");
+    }
+  });
+
+  it("空文字列でエラーを返す", () => {
+    const result = parseEventJson("");
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toContain("JSONパースエラー");
+    }
+  });
+
+  it("型が不正な JSON でエラーを返す", () => {
+    const jsonString = JSON.stringify({
+      isEvent: "yes", // boolean ではなく string
+      hasTime: true,
+      title: "テスト",
+      startTime: "2025-02-15",
+      endTime: "2025-02-16",
+      location: "",
+      description: "",
+    });
+
+    const result = parseEventJson(jsonString);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toContain("形式が不正");
+    }
+  });
+
+  it("コードブロック（言語指定なし）の JSON をパースできる", () => {
+    const jsonString = `\`\`\`
+{
+  "isEvent": true,
+  "hasTime": true,
+  "title": "言語指定なし",
+  "startTime": "2025-04-01T18:00:00+09:00",
+  "endTime": "2025-04-01T22:00:00+09:00",
+  "location": "六本木",
+  "description": "説明"
+}
+\`\`\``;
+
+    const result = parseEventJson(jsonString);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.title).toBe("言語指定なし");
+    }
+  });
+});
+
+describe("buildEventInfoFromParsed", () => {
+  const testUrl = "https://x.com/test/status/123";
+
+  it("有効なイベント情報から EventInfo を構築できる", () => {
+    const parsed: ParsedEventInfo = {
+      isEvent: true,
+      hasTime: true,
+      title: "テストイベント",
+      startTime: "2025-02-15T22:00:00+09:00",
+      endTime: "2025-02-16T05:00:00+09:00",
+      location: "渋谷",
+      description: "テスト説明",
+    };
+
+    const result = buildEventInfoFromParsed(parsed, testUrl, "テスト");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.title).toBe("テストイベント");
+      expect(result.data.location).toBe("渋谷");
+      expect(result.data.isAllDay).toBe(false);
+      expect(result.data.url).toBe(testUrl);
+    }
+  });
+
+  it("イベントでない場合は失敗を返す", () => {
+    const parsed: ParsedEventInfo = {
+      isEvent: false,
+      hasTime: false,
+      title: "",
+      startTime: "",
+      endTime: "",
+      location: "",
+      description: "",
+    };
+
+    const result = buildEventInfoFromParsed(parsed, testUrl, "テスト");
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toBe("イベント情報が含まれていません");
+    }
+  });
+
+  it("不正な日時の場合は失敗を返す", () => {
+    const parsed: ParsedEventInfo = {
+      isEvent: true,
+      hasTime: true,
+      title: "テスト",
+      startTime: "invalid-date",
+      endTime: "also-invalid",
+      location: "",
+      description: "",
+    };
+
+    const result = buildEventInfoFromParsed(parsed, testUrl, "テスト");
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toContain("日時の形式が不正");
+    }
+  });
+
+  it("終日イベント（hasTime: false）の場合 isAllDay が true になる", () => {
+    const parsed: ParsedEventInfo = {
+      isEvent: true,
+      hasTime: false,
+      title: "終日イベント",
+      startTime: "2025-03-01",
+      endTime: "2025-03-02",
+      location: "",
+      description: "終日",
+    };
+
+    const result = buildEventInfoFromParsed(parsed, testUrl, "テスト");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.isAllDay).toBe(true);
+    }
+  });
+
+  it("時刻付きイベント（hasTime: true）の場合 isAllDay が false になる", () => {
+    const parsed: ParsedEventInfo = {
+      isEvent: true,
+      hasTime: true,
+      title: "時刻指定イベント",
+      startTime: "2025-02-20T19:00:00+09:00",
+      endTime: "2025-02-20T23:00:00+09:00",
+      location: "新宿",
+      description: "夜のイベント",
+    };
+
+    const result = buildEventInfoFromParsed(parsed, testUrl, "テスト");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.isAllDay).toBe(false);
+    }
+  });
+
+  it("location がある場合は eventInfo.location に設定される", () => {
+    const parsed: ParsedEventInfo = {
+      isEvent: true,
+      hasTime: true,
+      title: "場所ありイベント",
+      startTime: "2025-02-25T20:00:00+09:00",
+      endTime: "2025-02-26T02:00:00+09:00",
+      location: "東京",
+      description: "説明",
+    };
+
+    const result = buildEventInfoFromParsed(parsed, testUrl, "テスト");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.location).toBe("東京");
+    }
+  });
+
+  it("location が空文字の場合は eventInfo.location が undefined になる", () => {
+    const parsed: ParsedEventInfo = {
+      isEvent: true,
+      hasTime: true,
+      title: "場所なしイベント",
+      startTime: "2025-02-25T20:00:00+09:00",
+      endTime: "2025-02-26T02:00:00+09:00",
+      location: "",
+      description: "説明",
+    };
+
+    const result = buildEventInfoFromParsed(parsed, testUrl, "テスト");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.location).toBeUndefined();
+    }
   });
 });

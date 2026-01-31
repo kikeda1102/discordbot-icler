@@ -91,6 +91,17 @@ export interface SimilarEvent {
   location?: string;
 }
 
+/** パースしたイベント情報（Gemini API レスポンス用） */
+export interface ParsedEventInfo {
+  isEvent: boolean;
+  hasTime: boolean;
+  title: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  description: string;
+}
+
 /** 確認待ちのイベント情報 */
 export interface PendingEvent {
   /** 抽出されたイベント情報 */

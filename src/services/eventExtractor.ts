@@ -4,7 +4,7 @@
  */
 
 import type { Embed } from "discord.js";
-import type { Result, EventInfo, ImageData, EmbedLike, EmbedWithImage } from "../types/index.js";
+import type { Result, EventInfo, ImageData, EmbedLike, EmbedWithImage, ParsedEventInfo } from "../types/index.js";
 import { getConfig } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 import { fetchMultipleImages } from "./imageService.js";
@@ -146,16 +146,7 @@ JSON形式で以下のように返してください。コードブロックは�
 }`;
 }
 
-/** パースしたイベント情報 */
-interface ParsedEventInfo {
-  isEvent: boolean;
-  hasTime: boolean;
-  title: string;
-  startTime: string;
-  endTime: string;
-  location: string;
-  description: string;
-}
+// ParsedEventInfo は types/index.ts からインポート
 
 /** Gemini API レスポンスの型 */
 interface GeminiResponse {
@@ -448,7 +439,7 @@ ${userMessage}`;
 /**
  * JSON文字列をパースしてイベント情報を取得する
  */
-function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
+export function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
   try {
     // JSONブロックを抽出（```json ... ``` 形式の場合に対応）
     const cleanJson = (() => {
@@ -499,7 +490,7 @@ function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
 /**
  * パースされたオブジェクトが正しい形式かチェック
  */
-function isValidParsedEventInfo(value: unknown): value is ParsedEventInfo {
+export function isValidParsedEventInfo(value: unknown): value is ParsedEventInfo {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -529,7 +520,7 @@ function isValidParsedEventInfo(value: unknown): value is ParsedEventInfo {
  * @param logMessage ログに出力するメッセージ
  * @returns EventInfo または失敗結果
  */
-function buildEventInfoFromParsed(
+export function buildEventInfoFromParsed(
   parsed: ParsedEventInfo,
   originalUrl: string,
   logMessage: string
