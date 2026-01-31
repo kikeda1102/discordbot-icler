@@ -442,62 +442,7 @@ ${userMessage}`;
     };
   }
 
-  // イベント情報でない場合はスキップ
-  if (!parsed.isEvent) {
-    logger.info("イベント情報ではないためスキップします", { url: originalUrl });
-    return {
-      success: false,
-      reason: "イベント情報が含まれていません",
-    };
-  }
-
-  // Date オブジェクトに変換
-  const startTime = new Date(parsed.startTime);
-  const endTime = new Date(parsed.endTime);
-
-  // 日付の妥当性チェック
-  if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-    logger.error("抽出された日時が不正です", {
-      url: originalUrl,
-      startTime: parsed.startTime,
-      endTime: parsed.endTime,
-    });
-    return {
-      success: false,
-      reason: "抽出された日時の形式が不正です",
-    };
-  }
-
-  // 終日イベントかどうか
-  const isAllDay = !parsed.hasTime;
-
-  // EventInfo を構築
-  const eventInfo: EventInfo = {
-    title: parsed.title,
-    description: parsed.description,
-    startTime,
-    endTime,
-    url: originalUrl,
-    isAllDay,
-  };
-
-  // location は空文字でないときのみ設定
-  if (parsed.location !== "") {
-    eventInfo.location = parsed.location;
-  }
-
-  logger.info("イベント情報を抽出しました", {
-    url: originalUrl,
-    title: eventInfo.title,
-    startTime: eventInfo.startTime.toISOString(),
-    endTime: eventInfo.endTime.toISOString(),
-    isAllDay,
-  });
-
-  return {
-    success: true,
-    data: eventInfo,
-  };
+  return buildEventInfoFromParsed(parsed, originalUrl, "イベント情報を抽出しました");
 }
 
 /**
@@ -575,6 +520,76 @@ function isValidParsedEventInfo(value: unknown): value is ParsedEventInfo {
     "description" in value &&
     typeof value.description === "string"
   );
+}
+
+/**
+ * ParsedEventInfo から EventInfo を構築する
+ * @param parsed パース済みイベント情報
+ * @param originalUrl 元のURL
+ * @param logMessage ログに出力するメッセージ
+ * @returns EventInfo または失敗結果
+ */
+function buildEventInfoFromParsed(
+  parsed: ParsedEventInfo,
+  originalUrl: string,
+  logMessage: string
+): Result<EventInfo> {
+  // イベント情報でない場合はスキップ
+  if (!parsed.isEvent) {
+    logger.info("イベント情報ではないためスキップします", { url: originalUrl });
+    return {
+      success: false,
+      reason: "イベント情報が含まれていません",
+    };
+  }
+
+  // Date オブジェクトに変換
+  const startTime = new Date(parsed.startTime);
+  const endTime = new Date(parsed.endTime);
+
+  // 日付の妥当性チェック
+  if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+    logger.error("抽出された日時が不正です", {
+      url: originalUrl,
+      startTime: parsed.startTime,
+      endTime: parsed.endTime,
+    });
+    return {
+      success: false,
+      reason: "抽出された日時の形式が不正です",
+    };
+  }
+
+  // 終日イベントかどうか
+  const isAllDay = !parsed.hasTime;
+
+  // EventInfo を構築
+  const eventInfo: EventInfo = {
+    title: parsed.title,
+    description: parsed.description,
+    startTime,
+    endTime,
+    url: originalUrl,
+    isAllDay,
+  };
+
+  // location は空文字でないときのみ設定
+  if (parsed.location !== "") {
+    eventInfo.location = parsed.location;
+  }
+
+  logger.info(logMessage, {
+    url: originalUrl,
+    title: eventInfo.title,
+    startTime: eventInfo.startTime.toISOString(),
+    endTime: eventInfo.endTime.toISOString(),
+    isAllDay,
+  });
+
+  return {
+    success: true,
+    data: eventInfo,
+  };
 }
 
 /**
@@ -753,60 +768,5 @@ ${userMessage}`,
     };
   }
 
-  // イベント情報でない場合はスキップ
-  if (!parsed.isEvent) {
-    logger.info("イベント情報ではないためスキップします", { url: originalUrl });
-    return {
-      success: false,
-      reason: "イベント情報が含まれていません",
-    };
-  }
-
-  // Date オブジェクトに変換
-  const startTime = new Date(parsed.startTime);
-  const endTime = new Date(parsed.endTime);
-
-  // 日付の妥当性チェック
-  if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-    logger.error("抽出された日時が不正です", {
-      url: originalUrl,
-      startTime: parsed.startTime,
-      endTime: parsed.endTime,
-    });
-    return {
-      success: false,
-      reason: "抽出された日時の形式が不正です",
-    };
-  }
-
-  // 終日イベントかどうか
-  const isAllDay = !parsed.hasTime;
-
-  // EventInfo を構築
-  const eventInfo: EventInfo = {
-    title: parsed.title,
-    description: parsed.description,
-    startTime,
-    endTime,
-    url: originalUrl,
-    isAllDay,
-  };
-
-  // location は空文字でないときのみ設定
-  if (parsed.location !== "") {
-    eventInfo.location = parsed.location;
-  }
-
-  logger.info("修正されたイベント情報を抽出しました", {
-    url: originalUrl,
-    title: eventInfo.title,
-    startTime: eventInfo.startTime.toISOString(),
-    endTime: eventInfo.endTime.toISOString(),
-    isAllDay,
-  });
-
-  return {
-    success: true,
-    data: eventInfo,
-  };
+  return buildEventInfoFromParsed(parsed, originalUrl, "修正されたイベント情報を抽出しました");
 }
