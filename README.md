@@ -45,6 +45,7 @@ Discord Server
 | LLM | Google Gemini API |
 | カレンダー | Google Calendar API |
 | ビルド | tsup |
+| デプロイ | Fly.io |
 
 ## ファイル構成
 
