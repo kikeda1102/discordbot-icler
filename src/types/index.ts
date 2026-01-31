@@ -69,6 +69,14 @@ export interface SerializedEmbed {
   thumbnail: { url: string } | null;
 }
 
+/** Embed のテキスト変換に必要な最小プロパティ */
+export interface EmbedLike {
+  title: string | null;
+  description: string | null;
+  author?: { name: string } | null;
+  fields: ReadonlyArray<{ name: string; value: string }>;
+}
+
 /** 類似イベント情報（重複チェック用） */
 export interface SimilarEvent {
   id: string;

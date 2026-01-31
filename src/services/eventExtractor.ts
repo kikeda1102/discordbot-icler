@@ -4,7 +4,7 @@
  */
 
 import type { Embed } from "discord.js";
-import type { Result, EventInfo, ImageData } from "../types/index.js";
+import type { Result, EventInfo, ImageData, EmbedLike } from "../types/index.js";
 import { getConfig } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 import { fetchMultipleImages } from "./imageService.js";
@@ -364,25 +364,7 @@ export async function extractEventFromMessage(
   const images = await fetchMultipleImages(imageUrls);
 
   // embed 情報を文字列化
-  const embedTexts = embeds
-    .map((embed) => {
-      const parts: string[] = [];
-      if (embed.author?.name !== undefined) {
-        parts.push(`投稿者: ${embed.author.name}`);
-      }
-      if (embed.title !== null) {
-        parts.push(`タイトル: ${embed.title}`);
-      }
-      if (embed.description !== null) {
-        parts.push(`内容: ${embed.description}`);
-      }
-      if (embed.fields.length > 0) {
-        const fieldTexts = embed.fields.map((f) => `${f.name}: ${f.value}`);
-        parts.push(`フィールド:\n${fieldTexts.join("\n")}`);
-      }
-      return parts.join("\n");
-    })
-    .filter((text) => text.length > 0);
+  const embedTexts = formatEmbedsToTexts(embeds);
 
   const userMessage = `**Discordメッセージ本文:**
 ${content}
@@ -652,45 +634,12 @@ ${embedTexts.length > 0 ? embedTexts.join("\n\n---\n\n") : "（なし）"}
 }
 
 /**
- * Discord embed を文字列形式に変換する
- * @param embeds Discord embed の配列
+ * Embed を文字列形式に変換する
+ * Discord.js の Embed と SerializedEmbed の両方に対応
+ * @param embeds EmbedLike の配列
  * @returns 文字列形式の embed 情報の配列
  */
-export function formatEmbedsToTexts(embeds: Embed[]): string[] {
-  return embeds
-    .map((embed) => {
-      const parts: string[] = [];
-      if (embed.author?.name !== undefined) {
-        parts.push(`投稿者: ${embed.author.name}`);
-      }
-      if (embed.title !== null) {
-        parts.push(`タイトル: ${embed.title}`);
-      }
-      if (embed.description !== null) {
-        parts.push(`内容: ${embed.description}`);
-      }
-      if (embed.fields.length > 0) {
-        const fieldTexts = embed.fields.map((f) => `${f.name}: ${f.value}`);
-        parts.push(`フィールド:\n${fieldTexts.join("\n")}`);
-      }
-      return parts.join("\n");
-    })
-    .filter((text) => text.length > 0);
-}
-
-/**
- * SerializedEmbed を文字列形式に変換する
- * @param embeds SerializedEmbed の配列
- * @returns 文字列形式の embed 情報の配列
- */
-export function formatSerializedEmbedsToTexts(
-  embeds: Array<{
-    title: string | null;
-    description: string | null;
-    author: { name: string } | null;
-    fields: Array<{ name: string; value: string }>;
-  }>
-): string[] {
+export function formatEmbedsToTexts(embeds: readonly EmbedLike[]): string[] {
   return embeds
     .map((embed) => {
       const parts: string[] = [];
@@ -749,7 +698,7 @@ export async function reExtractEventWithCorrection(
   const images = await fetchMultipleImages(imageUrls);
 
   // embed 情報を文字列化
-  const embedTexts = formatSerializedEmbedsToTexts(embeds);
+  const embedTexts = formatEmbedsToTexts(embeds);
   const userMessage = buildUserMessage(content, embedTexts, originalUrl);
 
   // 現在日時を日本時間で取得
