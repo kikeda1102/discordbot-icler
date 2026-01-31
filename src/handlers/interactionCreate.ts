@@ -17,13 +17,14 @@ import {
   findSimilarEvents,
 } from '../services/calendarService.js';
 import { getConfig } from '../config/index.js';
-import type { SimilarEvent } from '../types/index.js';
+import type { EventInfo, SimilarEvent } from '../types/index.js';
 import {
   getPendingEvent,
   removePendingEvent,
   isEventExpired,
 } from '../stores/pendingEvents.js';
 import { logger } from '../utils/logger.js';
+import { formatDateTimeJapanese } from '../utils/dateFormatter.js';
 
 /** ボタンの customId プレフィックス */
 const BUTTON_PREFIX = {
@@ -42,6 +43,25 @@ function getCalendarUrl(): string {
   const calendarId = getConfig().google.calendarId;
   const encodedId = Buffer.from(calendarId).toString('base64');
   return `https://calendar.google.com/calendar/u/0?cid=${encodedId}`;
+}
+
+/**
+ * イベント情報を完了メッセージ用にフォーマットする
+ */
+function formatEventInfoForMessage(eventInfo: EventInfo): string {
+  const isAllDay = eventInfo.isAllDay === true;
+  const lines: string[] = [`**${eventInfo.title}**`];
+
+  // 日時
+  const dateStr = formatDateTimeJapanese(eventInfo.startTime, isAllDay);
+  lines.push(isAllDay ? `📅 ${dateStr}（終日）` : `📅 ${dateStr}`);
+
+  // 場所
+  if (eventInfo.location !== undefined && eventInfo.location !== '') {
+    lines.push(`📍 ${eventInfo.location}`);
+  }
+
+  return lines.join('\n');
 }
 
 /** 使い方の説明テキスト */
@@ -252,8 +272,9 @@ async function registerEventToCalendar(
     await deleteConfirmationMessage(interaction);
 
     // Ephemeral メッセージで通知
+    const eventDetails = formatEventInfoForMessage(pending.eventInfo);
     await interaction.followUp({
-      content: `✅ カレンダーに登録しました\n\n**${pending.eventInfo.title}**\n\n📅 [カレンダーを開く](${getCalendarUrl()})`,
+      content: `✅ カレンダーに登録しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${getCalendarUrl()})`,
       flags: MessageFlags.Ephemeral,
     });
 
