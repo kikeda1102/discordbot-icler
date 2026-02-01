@@ -312,6 +312,50 @@ describe("parseEventJson", () => {
       expect(result.data.title).toBe("言語指定なし閉じタグなし");
     }
   });
+
+  it("不正なエスケープ文字を含むJSONをパースできる", () => {
+    // Gemini APIが \* \. \+ \( \) \- などの正規表現エスケープを出力することがある
+    const jsonString = `{
+  "isEvent": true,
+  "hasTime": true,
+  "title": "お給仕RAVE",
+  "startTime": "2026-02-21T16:00:00+09:00",
+  "endTime": "2026-02-21T23:00:00+09:00",
+  "location": "阿佐ヶ谷ドリフト",
+  "description": "イベント\\*\\.\\+ﾟ開催\\(土\\)16:00\\-23:00"
+}`;
+
+    const result = parseEventJson(jsonString);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.title).toBe("お給仕RAVE");
+      expect(result.data.description).toBe("イベント*.+ﾟ開催(土)16:00-23:00");
+    }
+  });
+
+  it("複数の不正なエスケープ文字を含むJSONをパースできる", () => {
+    // 実際のGemini APIの出力例に近いパターン
+    const jsonString = `{
+  "isEvent": true,
+  "hasTime": true,
+  "title": "テストイベント",
+  "startTime": "2026-03-15T20:00:00+09:00",
+  "endTime": "2026-03-16T05:00:00+09:00",
+  "location": "渋谷",
+  "description": "【☁️主催告知☁️】\\n\\*\\.\\+ﾟお給仕RAVE\\*\\.\\+ﾟ\\n📅2/21\\(土\\)16:00\\-23:00"
+}`;
+
+    const result = parseEventJson(jsonString);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.title).toBe("テストイベント");
+      // \n は有効なエスケープなので保持される
+      expect(result.data.description).toContain("*.+ﾟお給仕RAVE*.+ﾟ");
+      expect(result.data.description).toContain("(土)16:00-23:00");
+    }
+  });
 });
 
 describe("buildEventInfoFromParsed", () => {

@@ -120,6 +120,7 @@ ${imageInstruction}
 
 **出力形式:**
 純粋なJSON形式のみで返してください。マークダウン記法（バッククォート \`\`\` など）は一切使用せず、JSONのみを出力してください。
+文字列値内でバックスラッシュ（\\）によるエスケープは使用しないでください。特殊文字はそのまま記述してください。
 
 イベント情報が含まれている場合（時刻あり）:
 {
@@ -446,6 +447,16 @@ ${userMessage}`;
 }
 
 /**
+ * JSON文字列内の不正なエスケープシーケンスを修正する
+ * Gemini APIが \* \. \+ \( \) \- などの正規表現エスケープを出力することがある
+ * 有効なJSONエスケープ: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
+ * 上記以外の \X パターンを X に変換（バックスラッシュを除去）
+ */
+function fixInvalidJsonEscapes(jsonString: string): string {
+  return jsonString.replace(/\\([^"\\/bfnrtu])/g, "$1");
+}
+
+/**
  * JSON文字列をパースしてイベント情報を取得する
  */
 export function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
@@ -469,7 +480,9 @@ export function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
       return trimmed;
     })();
 
-    const parsed: unknown = JSON.parse(cleanJson);
+    // 不正なエスケープシーケンスを修正してからパース
+    const fixedJson = fixInvalidJsonEscapes(cleanJson);
+    const parsed: unknown = JSON.parse(fixedJson);
 
     // 型検証
     if (!isValidParsedEventInfo(parsed)) {
