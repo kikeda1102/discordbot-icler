@@ -119,7 +119,7 @@ ${imageInstruction}
   - これを大きく外れる場合は、日付や時刻の読み取り間違いの可能性があります
 
 **出力形式:**
-JSON形式で以下のように返してください。コードブロックは不要です。
+純粋なJSON形式のみで返してください。マークダウン記法（バッククォート \`\`\` など）は一切使用せず、JSONのみを出力してください。
 
 イベント情報が含まれている場合（時刻あり）:
 {
@@ -453,10 +453,19 @@ export function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
     // JSONブロックを抽出（```json ... ``` 形式の場合に対応）
     const cleanJson = (() => {
       const trimmed = jsonString.trim();
+
+      // パターン1: 完全な ```json ... ``` 形式
       const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (codeBlockMatch !== null && codeBlockMatch[1] !== undefined) {
         return codeBlockMatch[1].trim();
       }
+
+      // パターン2: 開始の ```json はあるが閉じの ``` がない場合
+      const openCodeBlockMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*)$/);
+      if (openCodeBlockMatch !== null && openCodeBlockMatch[1] !== undefined) {
+        return openCodeBlockMatch[1].trim();
+      }
+
       return trimmed;
     })();
 

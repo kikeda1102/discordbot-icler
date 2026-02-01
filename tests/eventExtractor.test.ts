@@ -272,6 +272,46 @@ describe("parseEventJson", () => {
       expect(result.data.title).toBe("言語指定なし");
     }
   });
+
+  it("閉じの ``` がないコードブロック付きJSONをパースできる", () => {
+    const jsonString = `\`\`\`json
+{
+  "isEvent": true,
+  "hasTime": true,
+  "title": "閉じタグなし",
+  "startTime": "2025-05-01T20:00:00+09:00",
+  "endTime": "2025-05-02T02:00:00+09:00",
+  "location": "池袋",
+  "description": "閉じタグがないケース"
+}`;
+
+    const result = parseEventJson(jsonString);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.title).toBe("閉じタグなし");
+    }
+  });
+
+  it("閉じの ``` がない言語指定なしコードブロック付きJSONをパースできる", () => {
+    const jsonString = `\`\`\`
+{
+  "isEvent": true,
+  "hasTime": false,
+  "title": "言語指定なし閉じタグなし",
+  "startTime": "2025-06-01",
+  "endTime": "2025-06-02",
+  "location": "",
+  "description": ""
+}`;
+
+    const result = parseEventJson(jsonString);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.title).toBe("言語指定なし閉じタグなし");
+    }
+  });
 });
 
 describe("buildEventInfoFromParsed", () => {
