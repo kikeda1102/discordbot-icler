@@ -42,7 +42,7 @@ const BUTTON_PREFIX = {
 function getCalendarUrl(): string {
   const calendarId = getConfig().google.calendarId;
   const encodedId = Buffer.from(calendarId).toString('base64');
-  return `https://calendar.google.com/calendar/u/0?cid=${encodedId}`;
+  return `https://calendar.google.com/calendar/r?cid=${encodedId}`;
 }
 
 /**
