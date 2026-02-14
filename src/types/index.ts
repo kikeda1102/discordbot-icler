@@ -112,6 +112,8 @@ export interface PendingEvent {
   createdAt: number;
   /** 確認メッセージのID */
   confirmationMessageId: string;
+  /** 確認メッセージが送信されたチャンネルのID */
+  channelId: string;
   /** 元のメッセージ本文（再抽出用） */
   originalContent: string;
   /** 元のembed情報（再抽出用） */

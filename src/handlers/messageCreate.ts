@@ -114,6 +114,7 @@ async function sendConfirmationMessage(
     eventInfo,
     userId: message.author.id,
     confirmationMessageId: confirmationMessage.id,
+    channelId: message.channelId,
     originalContent: content,
     originalEmbeds: embeds.map(serializeEmbed),
     originalUrl,

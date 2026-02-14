@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   registerInteractionHandler(client);
 
   // 確認待ちイベントのクリーンアップタイマーを開始
-  startCleanupTimer();
+  startCleanupTimer(client);
 
   logger.info('Discord Bot の起動が完了しました');
 }

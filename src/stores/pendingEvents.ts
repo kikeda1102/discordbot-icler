@@ -3,6 +3,7 @@
  * メモリ内で管理（再起動で消える想定）
  */
 
+import type { Client } from 'discord.js';
 import type { PendingEvent } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 
@@ -144,26 +145,63 @@ export function updatePendingEvent(
 }
 
 /**
- * タイムアウトした確認待ちイベントをクリーンアップする
+ * Discordの確認メッセージを削除する
+ * @param client Discord Client
+ * @param channelId チャンネルID
+ * @param messageId メッセージID
  */
-function cleanupExpiredEvents(): void {
+async function deleteDiscordMessage(
+  client: Client,
+  channelId: string,
+  messageId: string
+): Promise<void> {
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (channel === null || !channel.isTextBased() || channel.isDMBased()) {
+      logger.warn('チャンネルが見つからないか、テキストチャンネルではありません', {
+        channelId,
+      });
+      return;
+    }
+    await channel.messages.delete(messageId);
+    logger.info('タイムアウトした確認メッセージを削除しました', {
+      channelId,
+      messageId,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      logger.warn('確認メッセージの削除に失敗しました', {
+        channelId,
+        messageId,
+        error: error.message,
+      });
+    }
+  }
+}
+
+/**
+ * タイムアウトした確認待ちイベントをクリーンアップする
+ * @param client Discord Client
+ */
+async function cleanupExpiredEvents(client: Client): Promise<void> {
   const now = Date.now();
-  const expiredEventIds: string[] = [];
+  const expiredEntries: Array<{ eventId: string; event: PendingEvent }> = [];
 
   for (const [eventId, event] of pendingEvents) {
     if (now - event.createdAt > TIMEOUT_MS) {
-      expiredEventIds.push(eventId);
+      expiredEntries.push({ eventId, event });
     }
   }
 
-  for (const eventId of expiredEventIds) {
+  for (const { eventId, event } of expiredEntries) {
+    await deleteDiscordMessage(client, event.channelId, event.confirmationMessageId);
     removePendingEvent(eventId);
     logger.info('タイムアウトした確認待ちイベントを削除しました', { eventId });
   }
 
-  if (expiredEventIds.length > 0) {
+  if (expiredEntries.length > 0) {
     logger.debug('クリーンアップ完了', {
-      removedCount: expiredEventIds.length,
+      removedCount: expiredEntries.length,
       remainingCount: pendingEvents.size,
     });
   }
@@ -171,14 +209,23 @@ function cleanupExpiredEvents(): void {
 
 /**
  * 定期クリーンアップを開始する
+ * @param client Discord Client（タイムアウト時のメッセージ削除に使用）
  */
-export function startCleanupTimer(): void {
+export function startCleanupTimer(client: Client): void {
   if (cleanupTimerId !== null) {
     logger.warn('クリーンアップタイマーは既に起動しています');
     return;
   }
 
-  cleanupTimerId = setInterval(cleanupExpiredEvents, CLEANUP_INTERVAL_MS);
+  cleanupTimerId = setInterval(() => {
+    cleanupExpiredEvents(client).catch((error: unknown) => {
+      if (error instanceof Error) {
+        logger.error('クリーンアップ中にエラーが発生しました', {
+          error: error.message,
+        });
+      }
+    });
+  }, CLEANUP_INTERVAL_MS);
   logger.info('確認待ちイベントのクリーンアップタイマーを開始しました', {
     intervalMs: CLEANUP_INTERVAL_MS,
     timeoutMs: TIMEOUT_MS,
