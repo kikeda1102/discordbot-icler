@@ -7,8 +7,8 @@ import type { Client } from 'discord.js';
 import type { PendingEvent } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 
-/** タイムアウト時間（ミリ秒）: 10分 */
-const TIMEOUT_MS = 10 * 60 * 1000;
+/** タイムアウト時間（ミリ秒）: 5分 */
+const TIMEOUT_MS = 5 * 60 * 1000;
 
 /** クリーンアップ間隔（ミリ秒）: 1分 */
 const CLEANUP_INTERVAL_MS = 60 * 1000;
