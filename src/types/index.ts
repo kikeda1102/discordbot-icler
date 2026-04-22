@@ -38,6 +38,8 @@ export interface Config {
   app: {
     logLevel: LogLevel;
     nodeEnv: string;
+    surveyUrl: string | undefined;
+    surveyRate: number;
   };
 }
 
