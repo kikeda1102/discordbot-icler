@@ -17,7 +17,6 @@ import {
 } from '../services/eventExtractor.js';
 import { logger } from '../utils/logger.js';
 import { formatDateTimeJapanese } from '../utils/dateFormatter.js';
-import { getConfig } from '../config/index.js';
 import type { EventInfo, SerializedEmbed } from '../types/index.js';
 import {
   addPendingEvent,
@@ -25,21 +24,6 @@ import {
   getPendingEvent,
   updatePendingEvent,
 } from '../stores/pendingEvents.js';
-
-/**
- * アンケート URL を確率で抽選する。
- * URL 未設定、または抽選に外れた場合は undefined を返す。
- */
-function pickSurveyUrl(): string | undefined {
-  const { surveyUrl, surveyRate } = getConfig().app;
-  if (surveyUrl === undefined) {
-    return undefined;
-  }
-  if (Math.random() >= surveyRate) {
-    return undefined;
-  }
-  return surveyUrl;
-}
 
 /** 指定ミリ秒待機する */
 function sleep(ms: number): Promise<void> {
@@ -66,8 +50,7 @@ function serializeEmbed(embed: Embed): SerializedEmbed {
  */
 function buildConfirmationContent(
   eventInfo: EventInfo,
-  originalUrl: string,
-  surveyUrl?: string
+  originalUrl: string
 ): string {
   const lines: string[] = ['📋 **イベント情報を検出しました**\n'];
 
@@ -90,12 +73,6 @@ function buildConfirmationContent(
   lines.push('');
   lines.push(`元のツイート: ${originalUrl}`);
 
-  if (surveyUrl !== undefined) {
-    lines.push('');
-    lines.push('📊 アンケートにご協力をお願いします！');
-    lines.push(surveyUrl);
-  }
-
   return lines.join('\n');
 }
 
@@ -110,11 +87,7 @@ async function sendConfirmationMessage(
   embeds: Embed[]
 ): Promise<void> {
   // 確認メッセージの内容を生成
-  const confirmationContent = buildConfirmationContent(
-    eventInfo,
-    originalUrl,
-    pickSurveyUrl()
-  );
+  const confirmationContent = buildConfirmationContent(eventInfo, originalUrl);
 
   // まず仮のIDでボタンを作成（後で更新）
   const tempId = 'temp';
@@ -224,8 +197,7 @@ async function handleCorrectionReply(
   // 新しい確認メッセージを送信
   const confirmationContent = buildConfirmationContent(
     result.data,
-    pending.originalUrl,
-    pickSurveyUrl()
+    pending.originalUrl
   );
 
   const newRow = new ActionRowBuilder<ButtonBuilder>().addComponents(

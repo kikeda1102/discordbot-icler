@@ -26,6 +26,7 @@ import {
 } from "../stores/pendingEvents.js";
 import { logger } from "../utils/logger.js";
 import { formatDateTimeJapanese } from "../utils/dateFormatter.js";
+import { buildSurveySuffix } from "../utils/survey.js";
 
 /** ボタンの customId プレフィックス */
 const BUTTON_PREFIX = {
@@ -275,7 +276,7 @@ async function registerEventToCalendar(
     // Ephemeral メッセージで通知
     const eventDetails = formatEventInfoForMessage(pending.eventInfo);
     await interaction.followUp({
-      content: `✅ カレンダーに登録しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${getCalendarUrl()})`,
+      content: `✅ カレンダーに登録しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${getCalendarUrl()})${buildSurveySuffix()}`,
       flags: MessageFlags.Ephemeral,
     });
 
@@ -287,7 +288,7 @@ async function registerEventToCalendar(
   } else {
     // 失敗時はメッセージを残してエラーを表示
     await interaction.editReply({
-      content: `❌ 登録に失敗しました: ${result.reason}`,
+      content: `❌ 登録に失敗しました: ${result.reason}${buildSurveySuffix()}`,
       components: [],
     });
 
@@ -380,7 +381,7 @@ async function handleForceCancelButton(
 
   // まず Ephemeral メッセージで通知（インタラクションを応答）
   await interaction.reply({
-    content: "❌ キャンセルしました",
+    content: `❌ キャンセルしました${buildSurveySuffix()}`,
     flags: MessageFlags.Ephemeral,
   });
 
@@ -426,7 +427,7 @@ async function handleCancelButton(
 
   // まず Ephemeral メッセージで通知（インタラクションを応答）
   await interaction.reply({
-    content: "❌ キャンセルしました",
+    content: `❌ キャンセルしました${buildSurveySuffix()}`,
     flags: MessageFlags.Ephemeral,
   });
 
