@@ -11,28 +11,29 @@ import {
   type ButtonInteraction,
   type Client,
   type Interaction,
-} from 'discord.js';
+} from "discord.js";
 import {
   createCalendarEvent,
   findSimilarEvents,
-} from '../services/calendarService.js';
-import { getConfig } from '../config/index.js';
-import type { EventInfo, SimilarEvent } from '../types/index.js';
+} from "../services/calendarService.js";
+import { getConfig } from "../config/index.js";
+import { PENDING_EVENT_TIMEOUT_MINUTES } from "../config/constants.js";
+import type { EventInfo, SimilarEvent } from "../types/index.js";
 import {
   getPendingEvent,
   removePendingEvent,
   isEventExpired,
-} from '../stores/pendingEvents.js';
-import { logger } from '../utils/logger.js';
-import { formatDateTimeJapanese } from '../utils/dateFormatter.js';
+} from "../stores/pendingEvents.js";
+import { logger } from "../utils/logger.js";
+import { formatDateTimeJapanese } from "../utils/dateFormatter.js";
 
 /** ボタンの customId プレフィックス */
 const BUTTON_PREFIX = {
-  REGISTER: 'event_register_',
-  CANCEL: 'event_cancel_',
-  FORCE_REGISTER: 'event_force_register_',
-  FORCE_CANCEL: 'event_force_cancel_',
-  HELP: 'event_help',
+  REGISTER: "event_register_",
+  CANCEL: "event_cancel_",
+  FORCE_REGISTER: "event_force_register_",
+  FORCE_CANCEL: "event_force_cancel_",
+  HELP: "event_help",
 } as const;
 
 /**
@@ -41,7 +42,7 @@ const BUTTON_PREFIX = {
  */
 function getCalendarUrl(): string {
   const calendarId = getConfig().google.calendarId;
-  const encodedId = Buffer.from(calendarId).toString('base64');
+  const encodedId = Buffer.from(calendarId).toString("base64");
   return `https://calendar.google.com/calendar/r?cid=${encodedId}`;
 }
 
@@ -57,11 +58,11 @@ function formatEventInfoForMessage(eventInfo: EventInfo): string {
   lines.push(isAllDay ? `📅 ${dateStr}（終日）` : `📅 ${dateStr}`);
 
   // 場所
-  if (eventInfo.location !== undefined && eventInfo.location !== '') {
+  if (eventInfo.location !== undefined && eventInfo.location !== "") {
     lines.push(`📍 ${eventInfo.location}`);
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 /** 使い方の説明テキスト */
@@ -77,7 +78,7 @@ const HELP_TEXT = `📖 **使い方**
 
 **注意:**
 • ボタン操作と修正は**投稿者のみ**が行えます
-• **10分**経過するとタイムアウトします`;
+• **${PENDING_EVENT_TIMEOUT_MINUTES}分**経過するとタイムアウトします`;
 
 /**
  * ボタンクリックを処理する
@@ -138,11 +139,11 @@ async function handleHelpButton(interaction: ButtonInteraction): Promise<void> {
 function formatSimilarEventsWarning(similarEvents: SimilarEvent[]): string {
   const eventLines = similarEvents.map((event) => {
     const locationText =
-      event.location !== undefined ? `\n  場所: ${event.location}` : '';
+      event.location !== undefined ? `\n  場所: ${event.location}` : "";
     return `• **${event.title}** (${event.startTime})${locationText}`;
   });
 
-  return `⚠️ 以下の類似イベントが既に登録されています:\n\n${eventLines.join('\n\n')}\n\nそれでも登録しますか？`;
+  return `⚠️ 以下の類似イベントが既に登録されています:\n\n${eventLines.join("\n\n")}\n\nそれでも登録しますか？`;
 }
 
 /**
@@ -150,7 +151,7 @@ function formatSimilarEventsWarning(similarEvents: SimilarEvent[]): string {
  */
 async function handleRegisterButton(
   interaction: ButtonInteraction,
-  customId: string
+  customId: string,
 ): Promise<void> {
   const eventId = customId.slice(BUTTON_PREFIX.REGISTER.length);
   const pending = getPendingEvent(eventId);
@@ -158,7 +159,7 @@ async function handleRegisterButton(
   // イベントが見つからない場合
   if (pending === undefined) {
     await interaction.reply({
-      content: '❌ このイベントは既に処理されたか、タイムアウトしました',
+      content: "❌ このイベントは既に処理されたか、タイムアウトしました",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -167,7 +168,7 @@ async function handleRegisterButton(
   // 投稿者以外はクリック不可
   if (interaction.user.id !== pending.userId) {
     await interaction.reply({
-      content: '❌ このボタンは投稿者のみがクリックできます',
+      content: "❌ このボタンは投稿者のみがクリックできます",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -178,7 +179,7 @@ async function handleRegisterButton(
     removePendingEvent(eventId);
     // まず Ephemeral メッセージで通知（インタラクションを応答）
     await interaction.reply({
-      content: '⏰ タイムアウトしました。もう一度投稿してください。',
+      content: "⏰ タイムアウトしました。もう一度投稿してください。",
       flags: MessageFlags.Ephemeral,
     });
     // その後に確認メッセージを削除
@@ -192,7 +193,7 @@ async function handleRegisterButton(
   const similarResult = await findSimilarEvents(pending.eventInfo);
 
   if (!similarResult.success) {
-    logger.warn('類似イベント検索に失敗しましたが、登録を続行します', {
+    logger.warn("類似イベント検索に失敗しましたが、登録を続行します", {
       reason: similarResult.reason,
     });
     // 検索に失敗した場合は警告なしで登録を続行
@@ -207,12 +208,12 @@ async function handleRegisterButton(
     const forceRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`${BUTTON_PREFIX.FORCE_REGISTER}${eventId}`)
-        .setLabel('それでも登録')
+        .setLabel("それでも登録")
         .setStyle(ButtonStyle.Danger),
       new ButtonBuilder()
         .setCustomId(`${BUTTON_PREFIX.FORCE_CANCEL}${eventId}`)
-        .setLabel('キャンセル')
-        .setStyle(ButtonStyle.Secondary)
+        .setLabel("キャンセル")
+        .setStyle(ButtonStyle.Secondary),
     );
 
     await interaction.editReply({
@@ -220,7 +221,7 @@ async function handleRegisterButton(
       components: [forceRow],
     });
 
-    logger.info('類似イベントの警告を表示しました', {
+    logger.info("類似イベントの警告を表示しました", {
       eventId,
       similarCount: similarResult.data.length,
     });
@@ -235,12 +236,12 @@ async function handleRegisterButton(
  * 確認メッセージを削除する
  */
 async function deleteConfirmationMessage(
-  interaction: ButtonInteraction
+  interaction: ButtonInteraction,
 ): Promise<void> {
   try {
     await interaction.message.delete();
   } catch (error: unknown) {
-    logger.warn('確認メッセージの削除に失敗しました', {
+    logger.warn("確認メッセージの削除に失敗しました", {
       messageId: interaction.message.id,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -253,11 +254,11 @@ async function deleteConfirmationMessage(
 async function registerEventToCalendar(
   interaction: ButtonInteraction,
   eventId: string,
-  pending: ReturnType<typeof getPendingEvent>
+  pending: ReturnType<typeof getPendingEvent>,
 ): Promise<void> {
   if (pending === undefined) {
     await interaction.followUp({
-      content: '❌ このイベントは既に処理されたか、タイムアウトしました',
+      content: "❌ このイベントは既に処理されたか、タイムアウトしました",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -278,7 +279,7 @@ async function registerEventToCalendar(
       flags: MessageFlags.Ephemeral,
     });
 
-    logger.info('カレンダー登録が承認されました', {
+    logger.info("カレンダー登録が承認されました", {
       eventId,
       title: pending.eventInfo.title,
       userId: interaction.user.id,
@@ -290,7 +291,7 @@ async function registerEventToCalendar(
       components: [],
     });
 
-    logger.error('カレンダー登録に失敗しました', {
+    logger.error("カレンダー登録に失敗しました", {
       eventId,
       reason: result.reason,
     });
@@ -302,7 +303,7 @@ async function registerEventToCalendar(
  */
 async function handleForceRegisterButton(
   interaction: ButtonInteraction,
-  customId: string
+  customId: string,
 ): Promise<void> {
   const eventId = customId.slice(BUTTON_PREFIX.FORCE_REGISTER.length);
   const pending = getPendingEvent(eventId);
@@ -310,7 +311,7 @@ async function handleForceRegisterButton(
   // イベントが見つからない場合
   if (pending === undefined) {
     await interaction.reply({
-      content: '❌ このイベントは既に処理されたか、タイムアウトしました',
+      content: "❌ このイベントは既に処理されたか、タイムアウトしました",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -319,7 +320,7 @@ async function handleForceRegisterButton(
   // 投稿者以外はクリック不可
   if (interaction.user.id !== pending.userId) {
     await interaction.reply({
-      content: '❌ このボタンは投稿者のみがクリックできます',
+      content: "❌ このボタンは投稿者のみがクリックできます",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -330,7 +331,7 @@ async function handleForceRegisterButton(
     removePendingEvent(eventId);
     // まず Ephemeral メッセージで通知（インタラクションを応答）
     await interaction.reply({
-      content: '⏰ タイムアウトしました。もう一度投稿してください。',
+      content: "⏰ タイムアウトしました。もう一度投稿してください。",
       flags: MessageFlags.Ephemeral,
     });
     // その後に確認メッセージを削除
@@ -341,7 +342,7 @@ async function handleForceRegisterButton(
   await interaction.deferUpdate();
   await registerEventToCalendar(interaction, eventId, pending);
 
-  logger.info('類似イベント警告を無視して登録しました', {
+  logger.info("類似イベント警告を無視して登録しました", {
     eventId,
     title: pending.eventInfo.title,
   });
@@ -352,7 +353,7 @@ async function handleForceRegisterButton(
  */
 async function handleForceCancelButton(
   interaction: ButtonInteraction,
-  customId: string
+  customId: string,
 ): Promise<void> {
   const eventId = customId.slice(BUTTON_PREFIX.FORCE_CANCEL.length);
   const pending = getPendingEvent(eventId);
@@ -360,7 +361,7 @@ async function handleForceCancelButton(
   // イベントが見つからない場合
   if (pending === undefined) {
     await interaction.reply({
-      content: '❌ このイベントは既に処理されたか、タイムアウトしました',
+      content: "❌ このイベントは既に処理されたか、タイムアウトしました",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -369,7 +370,7 @@ async function handleForceCancelButton(
   // 投稿者以外はクリック不可
   if (interaction.user.id !== pending.userId) {
     await interaction.reply({
-      content: '❌ このボタンは投稿者のみがクリックできます',
+      content: "❌ このボタンは投稿者のみがクリックできます",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -379,14 +380,14 @@ async function handleForceCancelButton(
 
   // まず Ephemeral メッセージで通知（インタラクションを応答）
   await interaction.reply({
-    content: '❌ キャンセルしました',
+    content: "❌ キャンセルしました",
     flags: MessageFlags.Ephemeral,
   });
 
   // その後に確認メッセージを削除
   await deleteConfirmationMessage(interaction);
 
-  logger.info('類似イベント警告後にキャンセルされました', {
+  logger.info("類似イベント警告後にキャンセルされました", {
     eventId,
     title: pending.eventInfo.title,
     userId: interaction.user.id,
@@ -398,7 +399,7 @@ async function handleForceCancelButton(
  */
 async function handleCancelButton(
   interaction: ButtonInteraction,
-  customId: string
+  customId: string,
 ): Promise<void> {
   const eventId = customId.slice(BUTTON_PREFIX.CANCEL.length);
   const pending = getPendingEvent(eventId);
@@ -406,7 +407,7 @@ async function handleCancelButton(
   // イベントが見つからない場合
   if (pending === undefined) {
     await interaction.reply({
-      content: '❌ このイベントは既に処理されたか、タイムアウトしました',
+      content: "❌ このイベントは既に処理されたか、タイムアウトしました",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -415,7 +416,7 @@ async function handleCancelButton(
   // 投稿者以外はクリック不可
   if (interaction.user.id !== pending.userId) {
     await interaction.reply({
-      content: '❌ このボタンは投稿者のみがクリックできます',
+      content: "❌ このボタンは投稿者のみがクリックできます",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -425,14 +426,14 @@ async function handleCancelButton(
 
   // まず Ephemeral メッセージで通知（インタラクションを応答）
   await interaction.reply({
-    content: '❌ キャンセルしました',
+    content: "❌ キャンセルしました",
     flags: MessageFlags.Ephemeral,
   });
 
   // その後に確認メッセージを削除
   await deleteConfirmationMessage(interaction);
 
-  logger.info('カレンダー登録がキャンセルされました', {
+  logger.info("カレンダー登録がキャンセルされました", {
     eventId,
     title: pending.eventInfo.title,
     userId: interaction.user.id,
@@ -444,15 +445,15 @@ async function handleCancelButton(
  * @param client Discord Client
  */
 export function registerInteractionHandler(client: Client): void {
-  client.on('interactionCreate', (interaction) => {
+  client.on("interactionCreate", (interaction) => {
     handleButtonClick(interaction).catch((error: unknown) => {
       if (error instanceof Error) {
-        logger.error('インタラクション処理中にエラーが発生しました', {
+        logger.error("インタラクション処理中にエラーが発生しました", {
           error: error.message,
         });
       }
     });
   });
 
-  logger.info('interactionCreate ハンドラを登録しました');
+  logger.info("interactionCreate ハンドラを登録しました");
 }

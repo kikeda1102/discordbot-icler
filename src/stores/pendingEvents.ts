@@ -3,12 +3,10 @@
  * メモリ内で管理（再起動で消える想定）
  */
 
-import type { Client } from 'discord.js';
-import type { PendingEvent } from '../types/index.js';
-import { logger } from '../utils/logger.js';
-
-/** タイムアウト時間（ミリ秒）: 5分 */
-const TIMEOUT_MS = 5 * 60 * 1000;
+import type { Client } from "discord.js";
+import type { PendingEvent } from "../types/index.js";
+import { logger } from "../utils/logger.js";
+import { PENDING_EVENT_TIMEOUT_MS } from "../config/constants.js";
 
 /** クリーンアップ間隔（ミリ秒）: 1分 */
 const CLEANUP_INTERVAL_MS = 60 * 1000;
@@ -35,7 +33,7 @@ function generateEventId(): string {
  * @returns 生成されたイベントID
  */
 export function addPendingEvent(
-  pendingEvent: Omit<PendingEvent, 'createdAt'>
+  pendingEvent: Omit<PendingEvent, "createdAt">,
 ): string {
   const eventId = generateEventId();
   const fullEvent: PendingEvent = {
@@ -46,7 +44,7 @@ export function addPendingEvent(
   pendingEvents.set(eventId, fullEvent);
   messageToEventId.set(pendingEvent.confirmationMessageId, eventId);
 
-  logger.debug('確認待ちイベントを追加しました', {
+  logger.debug("確認待ちイベントを追加しました", {
     eventId,
     confirmationMessageId: pendingEvent.confirmationMessageId,
     userId: pendingEvent.userId,
@@ -79,7 +77,7 @@ export function getEventIdByMessageId(messageId: string): string | undefined {
  * @returns PendingEvent または undefined
  */
 export function getPendingEventByMessageId(
-  messageId: string
+  messageId: string,
 ): PendingEvent | undefined {
   const eventId = messageToEventId.get(messageId);
   if (eventId === undefined) {
@@ -102,7 +100,7 @@ export function removePendingEvent(eventId: string): boolean {
   messageToEventId.delete(event.confirmationMessageId);
   pendingEvents.delete(eventId);
 
-  logger.debug('確認待ちイベントを削除しました', { eventId });
+  logger.debug("確認待ちイベントを削除しました", { eventId });
 
   return true;
 }
@@ -116,7 +114,7 @@ export function removePendingEvent(eventId: string): boolean {
  */
 export function updatePendingEvent(
   eventId: string,
-  updates: Partial<Pick<PendingEvent, 'eventInfo' | 'confirmationMessageId'>>
+  updates: Partial<Pick<PendingEvent, "eventInfo" | "confirmationMessageId">>,
 ): boolean {
   const event = pendingEvents.get(eventId);
   if (event === undefined) {
@@ -139,7 +137,7 @@ export function updatePendingEvent(
   };
   pendingEvents.set(eventId, updatedEvent);
 
-  logger.debug('確認待ちイベントを更新しました', { eventId });
+  logger.debug("確認待ちイベントを更新しました", { eventId });
 
   return true;
 }
@@ -153,24 +151,27 @@ export function updatePendingEvent(
 async function deleteDiscordMessage(
   client: Client,
   channelId: string,
-  messageId: string
+  messageId: string,
 ): Promise<void> {
   try {
     const channel = await client.channels.fetch(channelId);
     if (channel === null || !channel.isTextBased() || channel.isDMBased()) {
-      logger.warn('チャンネルが見つからないか、テキストチャンネルではありません', {
-        channelId,
-      });
+      logger.warn(
+        "チャンネルが見つからないか、テキストチャンネルではありません",
+        {
+          channelId,
+        },
+      );
       return;
     }
     await channel.messages.delete(messageId);
-    logger.info('タイムアウトした確認メッセージを削除しました', {
+    logger.info("タイムアウトした確認メッセージを削除しました", {
       channelId,
       messageId,
     });
   } catch (error: unknown) {
     if (error instanceof Error) {
-      logger.warn('確認メッセージの削除に失敗しました', {
+      logger.warn("確認メッセージの削除に失敗しました", {
         channelId,
         messageId,
         error: error.message,
@@ -188,19 +189,23 @@ async function cleanupExpiredEvents(client: Client): Promise<void> {
   const expiredEntries: Array<{ eventId: string; event: PendingEvent }> = [];
 
   for (const [eventId, event] of pendingEvents) {
-    if (now - event.createdAt > TIMEOUT_MS) {
+    if (now - event.createdAt > PENDING_EVENT_TIMEOUT_MS) {
       expiredEntries.push({ eventId, event });
     }
   }
 
   for (const { eventId, event } of expiredEntries) {
-    await deleteDiscordMessage(client, event.channelId, event.confirmationMessageId);
+    await deleteDiscordMessage(
+      client,
+      event.channelId,
+      event.confirmationMessageId,
+    );
     removePendingEvent(eventId);
-    logger.info('タイムアウトした確認待ちイベントを削除しました', { eventId });
+    logger.info("タイムアウトした確認待ちイベントを削除しました", { eventId });
   }
 
   if (expiredEntries.length > 0) {
-    logger.debug('クリーンアップ完了', {
+    logger.debug("クリーンアップ完了", {
       removedCount: expiredEntries.length,
       remainingCount: pendingEvents.size,
     });
@@ -213,22 +218,22 @@ async function cleanupExpiredEvents(client: Client): Promise<void> {
  */
 export function startCleanupTimer(client: Client): void {
   if (cleanupTimerId !== null) {
-    logger.warn('クリーンアップタイマーは既に起動しています');
+    logger.warn("クリーンアップタイマーは既に起動しています");
     return;
   }
 
   cleanupTimerId = setInterval(() => {
     cleanupExpiredEvents(client).catch((error: unknown) => {
       if (error instanceof Error) {
-        logger.error('クリーンアップ中にエラーが発生しました', {
+        logger.error("クリーンアップ中にエラーが発生しました", {
           error: error.message,
         });
       }
     });
   }, CLEANUP_INTERVAL_MS);
-  logger.info('確認待ちイベントのクリーンアップタイマーを開始しました', {
+  logger.info("確認待ちイベントのクリーンアップタイマーを開始しました", {
     intervalMs: CLEANUP_INTERVAL_MS,
-    timeoutMs: TIMEOUT_MS,
+    timeoutMs: PENDING_EVENT_TIMEOUT_MS,
   });
 }
 
@@ -239,7 +244,7 @@ export function stopCleanupTimer(): void {
   if (cleanupTimerId !== null) {
     clearInterval(cleanupTimerId);
     cleanupTimerId = null;
-    logger.info('確認待ちイベントのクリーンアップタイマーを停止しました');
+    logger.info("確認待ちイベントのクリーンアップタイマーを停止しました");
   }
 }
 
@@ -253,5 +258,5 @@ export function isEventExpired(eventId: string): boolean {
   if (event === undefined) {
     return true;
   }
-  return Date.now() - event.createdAt > TIMEOUT_MS;
+  return Date.now() - event.createdAt > PENDING_EVENT_TIMEOUT_MS;
 }
