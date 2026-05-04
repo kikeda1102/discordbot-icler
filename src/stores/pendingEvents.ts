@@ -114,7 +114,7 @@ export function removePendingEvent(eventId: string): boolean {
  */
 export function updatePendingEvent(
   eventId: string,
-  updates: Partial<Pick<PendingEvent, "eventInfo" | "confirmationMessageId">>,
+  updates: Partial<Pick<PendingEvent, "eventInfo" | "confirmationMessageId" | "overwriteTargetCalendarEventId" | "similarEvents">>,
 ): boolean {
   const event = pendingEvents.get(eventId);
   if (event === undefined) {

@@ -122,5 +122,9 @@ export interface PendingEvent {
   originalEmbeds: SerializedEmbed[];
   /** 元のURL */
   originalUrl: string;
+  /** 上書き対象のカレンダーイベントID */
+  overwriteTargetCalendarEventId?: string;
+  /** 検出された類似イベント一覧 */
+  similarEvents?: SimilarEvent[];
 }
 

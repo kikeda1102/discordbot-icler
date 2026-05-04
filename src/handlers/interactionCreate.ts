@@ -8,21 +8,25 @@ import {
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
+  StringSelectMenuBuilder,
   type ButtonInteraction,
   type Client,
   type Interaction,
+  type StringSelectMenuInteraction,
 } from "discord.js";
 import {
   createCalendarEvent,
+  updateCalendarEvent,
   findSimilarEvents,
 } from "../services/calendarService.js";
 import { getConfig } from "../config/index.js";
 import { PENDING_EVENT_TIMEOUT_MINUTES } from "../config/constants.js";
-import type { EventInfo, SimilarEvent } from "../types/index.js";
+import type { EventInfo, PendingEvent, SimilarEvent } from "../types/index.js";
 import {
   getPendingEvent,
   removePendingEvent,
   isEventExpired,
+  updatePendingEvent,
 } from "../stores/pendingEvents.js";
 import { logger } from "../utils/logger.js";
 import { formatDateTimeJapanese } from "../utils/dateFormatter.js";
@@ -34,7 +38,13 @@ const BUTTON_PREFIX = {
   CANCEL: "event_cancel_",
   FORCE_REGISTER: "event_force_register_",
   FORCE_CANCEL: "event_force_cancel_",
+  OVERWRITE: "event_overwrite_",
   HELP: "event_help",
+} as const;
+
+/** セレクトメニューの customId プレフィックス */
+const SELECT_PREFIX = {
+  OVERWRITE_TARGET: "event_ow_select_",
 } as const;
 
 /**
@@ -82,45 +92,50 @@ const HELP_TEXT = `📖 **使い方**
 • **${PENDING_EVENT_TIMEOUT_MINUTES}分**経過するとタイムアウトします`;
 
 /**
- * ボタンクリックを処理する
- * @param interaction ボタンインタラクション
+ * インタラクションを処理する
  */
 async function handleButtonClick(interaction: Interaction): Promise<void> {
-  // ボタンインタラクション以外は無視
-  if (!interaction.isButton()) {
-    return;
+  if (interaction.isButton()) {
+    const { customId } = interaction;
+
+    if (customId.startsWith(BUTTON_PREFIX.REGISTER)) {
+      await handleRegisterButton(interaction, customId);
+      return;
+    }
+
+    if (customId.startsWith(BUTTON_PREFIX.CANCEL)) {
+      await handleCancelButton(interaction, customId);
+      return;
+    }
+
+    if (customId.startsWith(BUTTON_PREFIX.OVERWRITE)) {
+      await handleOverwriteButton(interaction, customId);
+      return;
+    }
+
+    if (customId.startsWith(BUTTON_PREFIX.FORCE_REGISTER)) {
+      await handleForceRegisterButton(interaction, customId);
+      return;
+    }
+
+    if (customId.startsWith(BUTTON_PREFIX.FORCE_CANCEL)) {
+      await handleForceCancelButton(interaction, customId);
+      return;
+    }
+
+    if (customId === BUTTON_PREFIX.HELP) {
+      await handleHelpButton(interaction);
+      return;
+    }
   }
 
-  const { customId } = interaction;
+  if (interaction.isStringSelectMenu()) {
+    const { customId } = interaction;
 
-  // 登録ボタンの処理
-  if (customId.startsWith(BUTTON_PREFIX.REGISTER)) {
-    await handleRegisterButton(interaction, customId);
-    return;
-  }
-
-  // キャンセルボタンの処理
-  if (customId.startsWith(BUTTON_PREFIX.CANCEL)) {
-    await handleCancelButton(interaction, customId);
-    return;
-  }
-
-  // 強制登録ボタンの処理（類似イベント警告後）
-  if (customId.startsWith(BUTTON_PREFIX.FORCE_REGISTER)) {
-    await handleForceRegisterButton(interaction, customId);
-    return;
-  }
-
-  // 強制キャンセルボタンの処理（類似イベント警告後）
-  if (customId.startsWith(BUTTON_PREFIX.FORCE_CANCEL)) {
-    await handleForceCancelButton(interaction, customId);
-    return;
-  }
-
-  // ヘルプボタンの処理
-  if (customId === BUTTON_PREFIX.HELP) {
-    await handleHelpButton(interaction);
-    return;
+    if (customId.startsWith(SELECT_PREFIX.OVERWRITE_TARGET)) {
+      await handleOverwriteSelect(interaction, customId);
+      return;
+    }
   }
 }
 
@@ -206,21 +221,65 @@ async function handleRegisterButton(
   if (similarResult.data.length > 0) {
     const warningMessage = formatSimilarEventsWarning(similarResult.data);
 
-    const forceRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`${BUTTON_PREFIX.FORCE_REGISTER}${eventId}`)
-        .setLabel("それでも登録")
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId(`${BUTTON_PREFIX.FORCE_CANCEL}${eventId}`)
-        .setLabel("キャンセル")
-        .setStyle(ButtonStyle.Secondary),
-    );
+    updatePendingEvent(eventId, { similarEvents: similarResult.data });
 
-    await interaction.editReply({
-      content: warningMessage,
-      components: [forceRow],
-    });
+    const firstSimilarEvent = similarResult.data[0];
+
+    if (similarResult.data.length === 1 && firstSimilarEvent !== undefined) {
+      updatePendingEvent(eventId, {
+        overwriteTargetCalendarEventId: firstSimilarEvent.id,
+      });
+
+      const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`${BUTTON_PREFIX.OVERWRITE}${eventId}`)
+          .setLabel("上書き更新")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`${BUTTON_PREFIX.FORCE_REGISTER}${eventId}`)
+          .setLabel("新規登録")
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId(`${BUTTON_PREFIX.FORCE_CANCEL}${eventId}`)
+          .setLabel("キャンセル")
+          .setStyle(ButtonStyle.Secondary),
+      );
+
+      await interaction.editReply({
+        content: warningMessage,
+        components: [buttonRow],
+      });
+    } else {
+      const selectRow =
+        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`${SELECT_PREFIX.OVERWRITE_TARGET}${eventId}`)
+            .setPlaceholder("上書きするイベントを選択...")
+            .addOptions(
+              similarResult.data.map((evt) => ({
+                label: evt.title.slice(0, 100),
+                description: evt.startTime,
+                value: evt.id,
+              })),
+            ),
+        );
+
+      const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`${BUTTON_PREFIX.FORCE_REGISTER}${eventId}`)
+          .setLabel("新規登録")
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId(`${BUTTON_PREFIX.FORCE_CANCEL}${eventId}`)
+          .setLabel("キャンセル")
+          .setStyle(ButtonStyle.Secondary),
+      );
+
+      await interaction.editReply({
+        content: warningMessage,
+        components: [selectRow, buttonRow],
+      });
+    }
 
     logger.info("類似イベントの警告を表示しました", {
       eventId,
@@ -237,7 +296,7 @@ async function handleRegisterButton(
  * 確認メッセージを削除する
  */
 async function deleteConfirmationMessage(
-  interaction: ButtonInteraction,
+  interaction: { message: { delete(): Promise<unknown>; id: string } },
 ): Promise<void> {
   try {
     await interaction.message.delete();
@@ -393,6 +452,157 @@ async function handleForceCancelButton(
     title: pending.eventInfo.title,
     userId: interaction.user.id,
   });
+}
+
+/**
+ * 上書き更新ボタンの処理（類似イベント1件時）
+ */
+async function handleOverwriteButton(
+  interaction: ButtonInteraction,
+  customId: string,
+): Promise<void> {
+  const eventId = customId.slice(BUTTON_PREFIX.OVERWRITE.length);
+  const pending = getPendingEvent(eventId);
+
+  if (pending === undefined) {
+    await interaction.reply({
+      content: "❌ このイベントは既に処理されたか、タイムアウトしました",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (interaction.user.id !== pending.userId) {
+    await interaction.reply({
+      content: "❌ このボタンは投稿者のみがクリックできます",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (isEventExpired(eventId)) {
+    removePendingEvent(eventId);
+    await interaction.reply({
+      content: "⏰ タイムアウトしました。もう一度投稿してください。",
+      flags: MessageFlags.Ephemeral,
+    });
+    await deleteConfirmationMessage(interaction);
+    return;
+  }
+
+  const targetCalendarEventId = pending.overwriteTargetCalendarEventId;
+  if (targetCalendarEventId === undefined) {
+    await interaction.reply({
+      content: "❌ 上書き対象のイベントが設定されていません",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+  await overwriteEventOnCalendar(
+    interaction,
+    eventId,
+    pending,
+    targetCalendarEventId,
+  );
+}
+
+/**
+ * 上書き対象セレクトメニューの処理（類似イベント複数件時）
+ */
+async function handleOverwriteSelect(
+  interaction: StringSelectMenuInteraction,
+  customId: string,
+): Promise<void> {
+  const eventId = customId.slice(SELECT_PREFIX.OVERWRITE_TARGET.length);
+  const pending = getPendingEvent(eventId);
+
+  if (pending === undefined) {
+    await interaction.reply({
+      content: "❌ このイベントは既に処理されたか、タイムアウトしました",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (interaction.user.id !== pending.userId) {
+    await interaction.reply({
+      content: "❌ この操作は投稿者のみが行えます",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (isEventExpired(eventId)) {
+    removePendingEvent(eventId);
+    await interaction.reply({
+      content: "⏰ タイムアウトしました。もう一度投稿してください。",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const selectedCalendarEventId = interaction.values[0];
+  if (selectedCalendarEventId === undefined) {
+    await interaction.reply({
+      content: "❌ イベントが選択されていません",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+  await overwriteEventOnCalendar(
+    interaction,
+    eventId,
+    pending,
+    selectedCalendarEventId,
+  );
+}
+
+/**
+ * 既存イベントを上書き更新する共通処理
+ */
+async function overwriteEventOnCalendar(
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  eventId: string,
+  pending: PendingEvent,
+  targetCalendarEventId: string,
+): Promise<void> {
+  const result = await updateCalendarEvent(
+    targetCalendarEventId,
+    pending.eventInfo,
+  );
+
+  if (result.success) {
+    removePendingEvent(eventId);
+    await deleteConfirmationMessage(interaction);
+
+    const eventDetails = formatEventInfoForMessage(pending.eventInfo);
+    await interaction.followUp({
+      content: `✅ 既存イベントを上書き更新しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${getCalendarUrl()})${buildSurveySuffix()}`,
+      flags: MessageFlags.Ephemeral,
+    });
+
+    logger.info("既存イベントを上書き更新しました", {
+      eventId,
+      calendarEventId: targetCalendarEventId,
+      title: pending.eventInfo.title,
+      userId: interaction.user.id,
+    });
+  } else {
+    await interaction.editReply({
+      content: `❌ 上書き更新に失敗しました: ${result.reason}${buildSurveySuffix()}`,
+      components: [],
+    });
+
+    logger.error("カレンダー上書き更新に失敗しました", {
+      eventId,
+      calendarEventId: targetCalendarEventId,
+      reason: result.reason,
+    });
+  }
 }
 
 /**

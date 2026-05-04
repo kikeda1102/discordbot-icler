@@ -227,6 +227,53 @@ export async function findSimilarEvents(
   };
 }
 
+/** 既存イベントを上書き更新する */
+export async function updateCalendarEvent(
+  calendarEventId: string,
+  eventInfo: EventInfo,
+): Promise<Result<string>> {
+  const config = getConfig();
+  const calendar = getCalendarClient();
+  const event = toCalendarEvent(eventInfo);
+
+  try {
+    const response = await calendar.events.update({
+      calendarId: config.google.calendarId,
+      eventId: calendarEventId,
+      requestBody: event,
+    });
+
+    const responseId = response.data.id;
+    if (responseId === undefined || responseId === null) {
+      return {
+        success: false,
+        reason: "イベントIDが取得できませんでした",
+      };
+    }
+
+    logger.info("Google Calendar のイベントを上書き更新しました", {
+      eventId: responseId,
+      title: eventInfo.title,
+    });
+
+    return {
+      success: true,
+      data: responseId,
+    };
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : "不明なエラー";
+    logger.error("Google Calendar 上書き更新に失敗しました", {
+      error: errorMessage,
+      title: eventInfo.title,
+    });
+    return {
+      success: false,
+      reason: `Google Calendar 上書き更新エラー: ${errorMessage}`,
+    };
+  }
+}
+
 /** イベントを Google Calendar に登録する */
 export async function createCalendarEvent(
   eventInfo: EventInfo,
