@@ -2,18 +2,20 @@
  * アンケート URL 関連のユーティリティ
  */
 
-import { getConfig } from '../config/index.js';
+import { getConfig } from "../config/index.js";
+
+const SURVEY_RATE = 0.1;
 
 /**
  * アンケート URL を確率で抽選する。
  * URL 未設定、または抽選に外れた場合は undefined を返す。
  */
 export function pickSurveyUrl(): string | undefined {
-  const { surveyUrl, surveyRate } = getConfig().app;
+  const { surveyUrl } = getConfig().app;
   if (surveyUrl === undefined) {
     return undefined;
   }
-  if (Math.random() >= surveyRate) {
+  if (Math.random() >= SURVEY_RATE) {
     return undefined;
   }
   return surveyUrl;
@@ -26,7 +28,7 @@ export function pickSurveyUrl(): string | undefined {
 export function buildSurveySuffix(): string {
   const url = pickSurveyUrl();
   if (url === undefined) {
-    return '';
+    return "";
   }
   return `\n\n📊 アンケートにご協力をお願いします！\n${url}`;
 }

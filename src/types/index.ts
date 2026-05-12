@@ -39,7 +39,6 @@ export interface Config {
     logLevel: LogLevel;
     nodeEnv: string;
     surveyUrl: string | undefined;
-    surveyRate: number;
   };
 }
 

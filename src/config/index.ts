@@ -47,18 +47,6 @@ function parseSurveyUrl(value: string | undefined): string | undefined {
   return value;
 }
 
-/** SURVEY_RATE を 0.0〜1.0 にパース。未設定・不正値は 1.0 にフォールバック */
-function parseSurveyRate(value: string | undefined): number {
-  if (value === undefined || value === '') {
-    return 1.0;
-  }
-  const parsed = Number.parseFloat(value);
-  if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) {
-    return 1.0;
-  }
-  return parsed;
-}
-
 /** 設定を読み込み・バリデーション */
 function loadConfig(): Config {
   return {
@@ -79,7 +67,6 @@ function loadConfig(): Config {
       logLevel: parseLogLevel(getEnvVar('LOG_LEVEL')),
       nodeEnv: getEnvVar('NODE_ENV') ?? 'development',
       surveyUrl: parseSurveyUrl(getEnvVar('SURVEY_URL')),
-      surveyRate: parseSurveyRate(getEnvVar('SURVEY_RATE')),
     },
   };
 }
