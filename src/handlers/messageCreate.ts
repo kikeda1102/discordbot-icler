@@ -24,6 +24,10 @@ import {
   getPendingEvent,
   updatePendingEvent,
 } from '../stores/pendingEvents.js';
+import {
+  isProcessed,
+  markProcessed,
+} from '../stores/processedMessages.js';
 
 /** 指定ミリ秒待機する */
 function sleep(ms: number): Promise<void> {
@@ -86,6 +90,14 @@ async function sendConfirmationMessage(
   content: string,
   embeds: Embed[]
 ): Promise<void> {
+  if (isProcessed(message.id)) {
+    logger.debug('既に処理済みのメッセージのためスキップします', {
+      messageId: message.id,
+    });
+    return;
+  }
+  markProcessed(message.id);
+
   // 確認メッセージの内容を生成
   const confirmationContent = buildConfirmationContent(eventInfo, originalUrl);
 
@@ -350,7 +362,7 @@ function createMessageHandler(
  * @param embeds 埋め込み情報
  * @param url X/Twitter URL
  */
-async function processEventExtraction(
+export async function processEventExtraction(
   message: Message,
   content: string,
   embeds: Embed[],

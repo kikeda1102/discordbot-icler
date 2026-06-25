@@ -5,6 +5,7 @@
 import { getConfig } from './config/index.js';
 import { createDiscordClient, registerConnectionLogger, startBot } from './client/index.js';
 import { registerMessageHandler } from './handlers/messageCreate.js';
+import { registerMessageUpdateHandler } from './handlers/messageUpdate.js';
 import { registerInteractionHandler } from './handlers/interactionCreate.js';
 import { startCleanupTimer } from './stores/pendingEvents.js';
 import { logger } from './utils/logger.js';
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
 
   // イベントハンドラを登録
   registerMessageHandler(client, config.discord.channelIds);
+  registerMessageUpdateHandler(client, config.discord.channelIds);
   registerInteractionHandler(client);
 
   // 確認待ちイベントのクリーンアップタイマーを開始
