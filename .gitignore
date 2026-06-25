@@ -36,5 +36,8 @@ tmp/
 temp/
 *.tmp
 
+# Playwright MCP
+.playwright-mcp/
+
 # Claude
 .claude
