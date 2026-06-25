@@ -21,6 +21,52 @@ export function createDiscordClient(): Client {
 }
 
 /**
+ * 接続状態の監視ログを登録する
+ * Gateway の切断・再接続を記録し、問題の診断に役立てる
+ */
+export const registerConnectionLogger = (client: Client): void => {
+  client.on('warn', (message) => {
+    logger.warn('Discord クライアント警告', { message });
+  });
+
+  client.on('error', (error) => {
+    logger.error('Discord クライアントエラー', { error: error.message });
+  });
+
+  client.on('shardDisconnect', (event, shardId) => {
+    logger.warn('Discord Gateway から切断されました', {
+      shardId,
+      code: event.code,
+      reason: event.reason,
+    });
+  });
+
+  client.on('shardReconnecting', (shardId) => {
+    logger.info('Discord Gateway に再接続しています', { shardId });
+  });
+
+  client.on('shardResume', (shardId, replayedEvents) => {
+    logger.info('Discord Gateway に再接続しました', {
+      shardId,
+      replayedEvents,
+    });
+  });
+
+  client.on('shardError', (error, shardId) => {
+    logger.error('Discord Shard エラー', {
+      shardId,
+      error: error.message,
+    });
+  });
+
+  client.on('invalidated', () => {
+    logger.error('Discord セッションが無効化されました');
+  });
+
+  logger.info('接続監視ログを登録しました');
+};
+
+/**
  * Bot を起動する
  * @param client Discord Client インスタンス
  * @param token Bot トークン

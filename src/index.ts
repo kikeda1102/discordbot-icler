@@ -3,7 +3,7 @@
  */
 
 import { getConfig } from './config/index.js';
-import { createDiscordClient, startBot } from './client/index.js';
+import { createDiscordClient, registerConnectionLogger, startBot } from './client/index.js';
 import { registerMessageHandler } from './handlers/messageCreate.js';
 import { registerInteractionHandler } from './handlers/interactionCreate.js';
 import { startCleanupTimer } from './stores/pendingEvents.js';
@@ -25,6 +25,9 @@ async function main(): Promise<void> {
     logger.error('Bot の起動に失敗しました', { reason: result.reason });
     process.exit(1);
   }
+
+  // 接続監視ログを登録
+  registerConnectionLogger(client);
 
   // イベントハンドラを登録
   registerMessageHandler(client, config.discord.channelIds);
