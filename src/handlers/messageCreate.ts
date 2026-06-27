@@ -9,25 +9,22 @@ import {
   type Client,
   type Embed,
   type Message,
-} from 'discord.js';
-import { extractXUrls } from '../services/urlExtractor.js';
+} from "discord.js";
+import { extractXUrls } from "../services/urlExtractor.js";
 import {
   extractEventFromMessage,
   reExtractEventWithCorrection,
-} from '../services/eventExtractor.js';
-import { logger } from '../utils/logger.js';
-import { formatDateTimeJapanese } from '../utils/dateFormatter.js';
-import type { EventInfo, SerializedEmbed } from '../types/index.js';
+} from "../services/eventExtractor.js";
+import { logger } from "../utils/logger.js";
+import { formatDateTimeJapanese } from "../utils/dateFormatter.js";
+import type { EventInfo, SerializedEmbed } from "../types/index.js";
 import {
   addPendingEvent,
   getEventIdByMessageId,
   getPendingEvent,
   updatePendingEvent,
-} from '../stores/pendingEvents.js';
-import {
-  isProcessed,
-  markProcessed,
-} from '../stores/processedMessages.js';
+} from "../stores/pendingEvents.js";
+import { isProcessed, markProcessed } from "../stores/processedMessages.js";
 
 /** 指定ミリ秒待機する */
 function sleep(ms: number): Promise<void> {
@@ -42,10 +39,12 @@ function serializeEmbed(embed: Embed): SerializedEmbed {
     title: embed.title,
     description: embed.description,
     url: embed.url,
-    author: embed.author?.name !== undefined ? { name: embed.author.name } : null,
+    author:
+      embed.author?.name !== undefined ? { name: embed.author.name } : null,
     fields: embed.fields.map((f) => ({ name: f.name, value: f.value })),
     image: embed.image?.url !== undefined ? { url: embed.image.url } : null,
-    thumbnail: embed.thumbnail?.url !== undefined ? { url: embed.thumbnail.url } : null,
+    thumbnail:
+      embed.thumbnail?.url !== undefined ? { url: embed.thumbnail.url } : null,
   };
 }
 
@@ -54,9 +53,9 @@ function serializeEmbed(embed: Embed): SerializedEmbed {
  */
 function buildConfirmationContent(
   eventInfo: EventInfo,
-  originalUrl: string
+  originalUrl: string,
 ): string {
-  const lines: string[] = ['📋 **イベント情報を検出しました**\n'];
+  const lines: string[] = ["📋 イベント情報を検出しました\n"];
 
   lines.push(`**タイトル:** ${eventInfo.title}`);
 
@@ -70,14 +69,14 @@ function buildConfirmationContent(
     lines.push(`**日時:** ${startStr} 〜 ${endStr}`);
   }
 
-  if (eventInfo.location !== undefined && eventInfo.location !== '') {
+  if (eventInfo.location !== undefined && eventInfo.location !== "") {
     lines.push(`**場所:** ${eventInfo.location}`);
   }
 
-  lines.push('');
+  lines.push("");
   lines.push(`元のツイート: ${originalUrl}`);
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 /**
@@ -88,10 +87,10 @@ async function sendConfirmationMessage(
   eventInfo: EventInfo,
   originalUrl: string,
   content: string,
-  embeds: Embed[]
+  embeds: Embed[],
 ): Promise<void> {
   if (isProcessed(message.id)) {
-    logger.debug('既に処理済みのメッセージのためスキップします', {
+    logger.debug("既に処理済みのメッセージのためスキップします", {
       messageId: message.id,
     });
     return;
@@ -102,20 +101,20 @@ async function sendConfirmationMessage(
   const confirmationContent = buildConfirmationContent(eventInfo, originalUrl);
 
   // まず仮のIDでボタンを作成（後で更新）
-  const tempId = 'temp';
+  const tempId = "temp";
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`event_register_${tempId}`)
-      .setLabel('登録する')
+      .setLabel("登録する")
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`event_cancel_${tempId}`)
-      .setLabel('キャンセル')
+      .setLabel("キャンセル")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId('event_help')
-      .setLabel('使い方')
-      .setStyle(ButtonStyle.Secondary)
+      .setCustomId("event_help")
+      .setLabel("使い方")
+      .setStyle(ButtonStyle.Secondary),
   );
 
   // 確認メッセージを送信
@@ -139,16 +138,16 @@ async function sendConfirmationMessage(
   const updatedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`event_register_${eventId}`)
-      .setLabel('登録する')
+      .setLabel("登録する")
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`event_cancel_${eventId}`)
-      .setLabel('キャンセル')
+      .setLabel("キャンセル")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId('event_help')
-      .setLabel('使い方')
-      .setStyle(ButtonStyle.Secondary)
+      .setCustomId("event_help")
+      .setLabel("使い方")
+      .setStyle(ButtonStyle.Secondary),
   );
 
   await confirmationMessage.edit({
@@ -156,7 +155,7 @@ async function sendConfirmationMessage(
     components: [updatedRow],
   });
 
-  logger.info('確認メッセージを送信しました', {
+  logger.info("確認メッセージを送信しました", {
     eventId,
     messageId: confirmationMessage.id,
     title: eventInfo.title,
@@ -168,25 +167,25 @@ async function sendConfirmationMessage(
  */
 async function handleCorrectionReply(
   message: Message,
-  eventId: string
+  eventId: string,
 ): Promise<void> {
   const pending = getPendingEvent(eventId);
   if (pending === undefined) {
-    logger.warn('修正対象のイベントが見つかりません', { eventId });
+    logger.warn("修正対象のイベントが見つかりません", { eventId });
     return;
   }
 
   // 投稿者以外は修正不可
   if (message.author.id !== pending.userId) {
     await message.reply({
-      content: '❌ 修正は元の投稿者のみが行えます',
+      content: "❌ 修正は元の投稿者のみが行えます",
     });
     return;
   }
 
   const correction = message.content;
 
-  logger.info('修正指示を受け付けました', {
+  logger.info("修正指示を受け付けました", {
     eventId,
     correction,
   });
@@ -196,7 +195,7 @@ async function handleCorrectionReply(
     pending.originalContent,
     pending.originalEmbeds,
     pending.originalUrl,
-    correction
+    correction,
   );
 
   if (!result.success) {
@@ -209,22 +208,22 @@ async function handleCorrectionReply(
   // 新しい確認メッセージを送信
   const confirmationContent = buildConfirmationContent(
     result.data,
-    pending.originalUrl
+    pending.originalUrl,
   );
 
   const newRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`event_register_${eventId}`)
-      .setLabel('登録する')
+      .setLabel("登録する")
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`event_cancel_${eventId}`)
-      .setLabel('キャンセル')
+      .setLabel("キャンセル")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId('event_help')
-      .setLabel('使い方')
-      .setStyle(ButtonStyle.Secondary)
+      .setCustomId("event_help")
+      .setLabel("使い方")
+      .setStyle(ButtonStyle.Secondary),
   );
 
   const newConfirmationMessage = await message.reply({
@@ -235,13 +234,15 @@ async function handleCorrectionReply(
   // 古い確認メッセージのボタンを無効化
   try {
     const channel = message.channel;
-    const oldMessage = await channel.messages.fetch(pending.confirmationMessageId);
+    const oldMessage = await channel.messages.fetch(
+      pending.confirmationMessageId,
+    );
     await oldMessage.edit({
-      content: oldMessage.content + '\n\n*（修正されました）*',
+      content: oldMessage.content + "\n\n*（修正されました）*",
       components: [],
     });
   } catch (error: unknown) {
-    logger.warn('古い確認メッセージの更新に失敗しました', {
+    logger.warn("古い確認メッセージの更新に失敗しました", {
       messageId: pending.confirmationMessageId,
     });
   }
@@ -252,7 +253,7 @@ async function handleCorrectionReply(
     confirmationMessageId: newConfirmationMessage.id,
   });
 
-  logger.info('修正された確認メッセージを送信しました', {
+  logger.info("修正された確認メッセージを送信しました", {
     eventId,
     title: result.data.title,
   });
@@ -266,7 +267,7 @@ async function handleCorrectionReply(
  */
 function createMessageHandler(
   channelIds: string[],
-  clientUserId: string
+  clientUserId: string,
 ): (message: Message) => Promise<void> {
   return async (message: Message): Promise<void> => {
     // 指定チャンネル以外は無視
@@ -307,7 +308,7 @@ function createMessageHandler(
     }
 
     // URL が見つかった場合はログ出力
-    logger.info('X/Twitter URL を検出しました', {
+    logger.info("X/Twitter URL を検出しました", {
       urls: result.data,
       messageId: message.id,
       authorId: message.author.id,
@@ -319,16 +320,16 @@ function createMessageHandler(
       if (message.embeds.length > 0) {
         return message.embeds;
       }
-      logger.debug('embed がないため、3秒待機して再取得します');
+      logger.debug("embed がないため、3秒待機して再取得します");
       await sleep(3000);
       try {
         const refreshedMessage = await message.fetch();
-        logger.debug('メッセージを再取得しました', {
+        logger.debug("メッセージを再取得しました", {
           embedCount: refreshedMessage.embeds.length,
         });
         return refreshedMessage.embeds;
       } catch (error: unknown) {
-        logger.warn('メッセージの再取得に失敗しました', {
+        logger.warn("メッセージの再取得に失敗しました", {
           messageId: message.id,
         });
         return message.embeds;
@@ -336,7 +337,7 @@ function createMessageHandler(
     })();
 
     // メッセージ本文と embed 情報をログ出力（デバッグ用）
-    logger.debug('メッセージ内容', {
+    logger.debug("メッセージ内容", {
       content: message.content,
       embedCount: embeds.length,
       embeds: embeds.map((embed) => ({
@@ -366,12 +367,12 @@ export async function processEventExtraction(
   message: Message,
   content: string,
   embeds: Embed[],
-  url: string
+  url: string,
 ): Promise<void> {
   // イベント情報を抽出
   const eventResult = await extractEventFromMessage(content, embeds, url);
   if (!eventResult.success) {
-    logger.warn('イベント情報の抽出に失敗しました', {
+    logger.warn("イベント情報の抽出に失敗しました", {
       url,
       reason: eventResult.reason,
     });
@@ -379,7 +380,13 @@ export async function processEventExtraction(
   }
 
   // 確認メッセージを送信
-  await sendConfirmationMessage(message, eventResult.data, url, content, embeds);
+  await sendConfirmationMessage(
+    message,
+    eventResult.data,
+    url,
+    content,
+    embeds,
+  );
 }
 
 /**
@@ -389,20 +396,20 @@ export async function processEventExtraction(
  */
 export function registerMessageHandler(
   client: Client,
-  channelIds: string[]
+  channelIds: string[],
 ): void {
   // client.user が null の場合は登録しない
   if (client.user === null) {
-    logger.error('Client user が設定されていません');
+    logger.error("Client user が設定されていません");
     return;
   }
 
   const handler = createMessageHandler(channelIds, client.user.id);
 
-  client.on('messageCreate', (message) => {
+  client.on("messageCreate", (message) => {
     handler(message).catch((error: unknown) => {
       if (error instanceof Error) {
-        logger.error('メッセージ処理中にエラーが発生しました', {
+        logger.error("メッセージ処理中にエラーが発生しました", {
           error: error.message,
           messageId: message.id,
         });
@@ -410,5 +417,5 @@ export function registerMessageHandler(
     });
   });
 
-  logger.info('messageCreate ハンドラを登録しました', { channelIds });
+  logger.info("messageCreate ハンドラを登録しました", { channelIds });
 }
