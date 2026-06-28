@@ -3,6 +3,11 @@ import type { Client, Message, PartialMessage } from 'discord.js';
 
 vi.mock('../src/stores/processedMessages.js', () => ({
   isProcessed: vi.fn(() => false),
+  markProcessed: vi.fn(),
+}));
+
+vi.mock('../src/stores/awaitingEmbeds.js', () => ({
+  consumeAwaiting: vi.fn(),
 }));
 
 vi.mock('../src/handlers/messageCreate.js', () => ({
