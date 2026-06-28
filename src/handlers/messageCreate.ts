@@ -25,11 +25,12 @@ import {
   updatePendingEvent,
 } from "../stores/pendingEvents.js";
 import { isProcessed, markProcessed } from "../stores/processedMessages.js";
-
-/** 指定ミリ秒待機する */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+import {
+  isAwaiting,
+  registerAwaiting,
+  removeAwaiting,
+} from "../stores/awaitingEmbeds.js";
+import { EMBED_FALLBACK_TIMEOUT_MS } from "../config/constants.js";
 
 /**
  * Discord Embed をシリアライズ可能な形式に変換する
@@ -89,14 +90,6 @@ async function sendConfirmationMessage(
   content: string,
   embeds: Embed[],
 ): Promise<void> {
-  if (isProcessed(message.id)) {
-    logger.debug("既に処理済みのメッセージのためスキップします", {
-      messageId: message.id,
-    });
-    return;
-  }
-  markProcessed(message.id);
-
   // 確認メッセージの内容を生成
   const confirmationContent = buildConfirmationContent(eventInfo, originalUrl);
 
@@ -315,43 +308,69 @@ function createMessageHandler(
       channelId: message.channelId,
     });
 
-    // embed が遅延読み込みされるため、少し待ってからメッセージを再取得
-    const embeds = await (async () => {
-      if (message.embeds.length > 0) {
-        return message.embeds;
+    const urls = result.data;
+
+    if (message.embeds.length > 0) {
+      // embed が既にある場合は即座に処理
+      markProcessed(message.id);
+
+      logger.debug("embed あり、即時処理します", {
+        messageId: message.id,
+        embedCount: message.embeds.length,
+      });
+
+      for (const url of urls) {
+        await processEventExtraction(
+          message,
+          message.content,
+          message.embeds,
+          url,
+        );
       }
-      logger.debug("embed がないため、3秒待機して再取得します");
-      await sleep(3000);
-      try {
-        const refreshedMessage = await message.fetch();
-        logger.debug("メッセージを再取得しました", {
-          embedCount: refreshedMessage.embeds.length,
-        });
-        return refreshedMessage.embeds;
-      } catch (error: unknown) {
-        logger.warn("メッセージの再取得に失敗しました", {
+    } else {
+      // embed がない場合は messageUpdate に委譲し、フォールバックタイマーを設定
+      logger.debug("embed なし、messageUpdate を待機します", {
+        messageId: message.id,
+      });
+
+      const capturedUrls = urls;
+      const fallbackTimerId = setTimeout(() => {
+        if (!isAwaiting(message.id)) {
+          return;
+        }
+        removeAwaiting(message.id);
+        if (isProcessed(message.id)) {
+          return;
+        }
+        markProcessed(message.id);
+
+        logger.info("フォールバックタイマーが発火しました", {
           messageId: message.id,
         });
-        return message.embeds;
-      }
-    })();
 
-    // メッセージ本文と embed 情報をログ出力（デバッグ用）
-    logger.debug("メッセージ内容", {
-      content: message.content,
-      embedCount: embeds.length,
-      embeds: embeds.map((embed) => ({
-        title: embed.title,
-        description: embed.description,
-        url: embed.url,
-        author: embed.author,
-        fields: embed.fields,
-      })),
-    });
+        message
+          .fetch()
+          .then(async (refreshed) => {
+            for (const url of capturedUrls) {
+              await processEventExtraction(
+                refreshed,
+                refreshed.content,
+                refreshed.embeds,
+                url,
+              );
+            }
+          })
+          .catch((error: unknown) => {
+            if (error instanceof Error) {
+              logger.warn("フォールバック処理中にエラーが発生しました", {
+                messageId: message.id,
+                error: error.message,
+              });
+            }
+          });
+      }, EMBED_FALLBACK_TIMEOUT_MS);
 
-    // 各 URL を処理
-    for (const url of result.data) {
-      await processEventExtraction(message, message.content, embeds, url);
+      registerAwaiting(message.id, fallbackTimerId);
     }
   };
 }

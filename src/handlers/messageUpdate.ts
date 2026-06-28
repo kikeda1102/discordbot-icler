@@ -5,7 +5,8 @@
 
 import type { Client, Message, PartialMessage } from 'discord.js';
 import { extractXUrls } from '../services/urlExtractor.js';
-import { isProcessed } from '../stores/processedMessages.js';
+import { isProcessed, markProcessed } from '../stores/processedMessages.js';
+import { consumeAwaiting } from '../stores/awaitingEmbeds.js';
 import { logger } from '../utils/logger.js';
 import { processEventExtraction } from './messageCreate.js';
 
@@ -54,6 +55,9 @@ const createMessageUpdateHandler = (
     if (!result.success) {
       return;
     }
+
+    consumeAwaiting(message.id);
+    markProcessed(message.id);
 
     logger.info('messageUpdate で X/Twitter URL を検出しました', {
       urls: result.data,

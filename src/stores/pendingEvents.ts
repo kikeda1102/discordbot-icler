@@ -8,6 +8,7 @@ import type { PendingEvent } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 import { PENDING_EVENT_TIMEOUT_MS } from "../config/constants.js";
 import { cleanupProcessedMessages } from "./processedMessages.js";
+import { cleanupAwaiting } from "./awaitingEmbeds.js";
 
 /** クリーンアップ間隔（ミリ秒）: 1分 */
 const CLEANUP_INTERVAL_MS = 60 * 1000;
@@ -225,6 +226,7 @@ export function startCleanupTimer(client: Client): void {
 
   cleanupTimerId = setInterval(() => {
     cleanupProcessedMessages();
+    cleanupAwaiting();
     cleanupExpiredEvents(client).catch((error: unknown) => {
       if (error instanceof Error) {
         logger.error("クリーンアップ中にエラーが発生しました", {
