@@ -342,7 +342,6 @@ function createMessageHandler(
         if (isProcessed(message.id)) {
           return;
         }
-        markProcessed(message.id);
 
         logger.info("フォールバックタイマーが発火しました", {
           messageId: message.id,
@@ -351,6 +350,11 @@ function createMessageHandler(
         message
           .fetch()
           .then(async (refreshed) => {
+            if (isProcessed(message.id)) {
+              return;
+            }
+            markProcessed(message.id);
+
             for (const url of capturedUrls) {
               await processEventExtraction(
                 refreshed,
