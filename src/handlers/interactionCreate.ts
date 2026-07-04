@@ -19,7 +19,6 @@ import {
   updateCalendarEvent,
   findSimilarEvents,
 } from "../services/calendarService.js";
-import { getConfig } from "../config/index.js";
 import { PENDING_EVENT_TIMEOUT_MINUTES } from "../config/constants.js";
 import type { EventInfo, PendingEvent, SimilarEvent } from "../types/index.js";
 import {
@@ -47,15 +46,7 @@ const SELECT_PREFIX = {
   OVERWRITE_TARGET: "event_ow_select_",
 } as const;
 
-/**
- * Google Calendar の公開リンクを生成する
- * calendarId を Base64 エンコードして cid パラメータに設定
- */
-function getCalendarUrl(): string {
-  const calendarId = getConfig().google.calendarId;
-  const encodedId = Buffer.from(calendarId).toString("base64");
-  return `https://calendar.google.com/calendar/r?cid=${encodedId}`;
-}
+const CALENDAR_URL = "https://icler-calendar.vercel.app/";
 
 /**
  * イベント情報を完了メッセージ用にフォーマットする
@@ -295,9 +286,9 @@ async function handleRegisterButton(
 /**
  * 確認メッセージを削除する
  */
-async function deleteConfirmationMessage(
-  interaction: { message: { delete(): Promise<unknown>; id: string } },
-): Promise<void> {
+async function deleteConfirmationMessage(interaction: {
+  message: { delete(): Promise<unknown>; id: string };
+}): Promise<void> {
   try {
     await interaction.message.delete();
   } catch (error: unknown) {
@@ -335,7 +326,7 @@ async function registerEventToCalendar(
     // Ephemeral メッセージで通知
     const eventDetails = formatEventInfoForMessage(pending.eventInfo);
     await interaction.followUp({
-      content: `✅ カレンダーに登録しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${getCalendarUrl()})${buildSurveySuffix()}`,
+      content: `✅ カレンダーに登録しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${CALENDAR_URL})${buildSurveySuffix()}`,
       flags: MessageFlags.Ephemeral,
     });
 
@@ -581,7 +572,7 @@ async function overwriteEventOnCalendar(
 
     const eventDetails = formatEventInfoForMessage(pending.eventInfo);
     await interaction.followUp({
-      content: `✅ 既存イベントを上書き更新しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${getCalendarUrl()})${buildSurveySuffix()}`,
+      content: `✅ 既存イベントを上書き更新しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${CALENDAR_URL})${buildSurveySuffix()}`,
       flags: MessageFlags.Ephemeral,
     });
 
