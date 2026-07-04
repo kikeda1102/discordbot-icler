@@ -2,7 +2,7 @@
  * Discord Client 初期化・管理
  */
 
-import { Client, GatewayIntentBits } from 'discord.js';
+import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import type { Result } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 
@@ -17,6 +17,7 @@ export function createDiscordClient(): Client {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
     ],
+    partials: [Partials.Message, Partials.Channel],
   });
 }
 

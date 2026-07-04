@@ -4,6 +4,7 @@ import type { Client, Message, PartialMessage } from 'discord.js';
 vi.mock('../src/stores/processedMessages.js', () => ({
   isProcessed: vi.fn(() => false),
   markProcessed: vi.fn(),
+  unmarkProcessed: vi.fn(),
 }));
 
 vi.mock('../src/stores/awaitingEmbeds.js', () => ({
@@ -11,7 +12,7 @@ vi.mock('../src/stores/awaitingEmbeds.js', () => ({
 }));
 
 vi.mock('../src/handlers/messageCreate.js', () => ({
-  processEventExtraction: vi.fn(() => Promise.resolve()),
+  processEventExtraction: vi.fn(() => Promise.resolve(true)),
 }));
 
 vi.mock('../src/utils/logger.js', () => ({
@@ -201,5 +202,22 @@ describe('messageUpdate ハンドラ', () => {
 
     expect(partialNew.fetch).toHaveBeenCalled();
     expect(processEventExtraction).toHaveBeenCalled();
+  });
+
+  it('フォールバック失敗で unmark された後、embed 付き messageUpdate が来たら処理される', async () => {
+    // isProcessed が false を返す = unmarkProcessed 済みをシミュレート
+    vi.mocked(isProcessed).mockReturnValue(false);
+
+    const handler = setupHandler();
+    const message = createMockMessage({ embedCount: 2 });
+
+    await handler(createMockPartialMessage(), message);
+
+    expect(processEventExtraction).toHaveBeenCalledWith(
+      message,
+      message.content,
+      message.embeds,
+      'https://x.com/test/status/123456789',
+    );
   });
 });

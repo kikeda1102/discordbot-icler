@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   markProcessed,
   isProcessed,
+  unmarkProcessed,
   cleanupProcessedMessages,
 } from '../src/stores/processedMessages.js';
 
@@ -40,6 +41,42 @@ describe('markProcessed / isProcessed', () => {
     expect(isProcessed('msg-a')).toBe(true);
     expect(isProcessed('msg-b')).toBe(true);
     expect(isProcessed('msg-c')).toBe(false);
+  });
+});
+
+describe('unmarkProcessed', () => {
+  it('処理済みマークを解除できる', async () => {
+    const { markProcessed, isProcessed, unmarkProcessed } = await import(
+      '../src/stores/processedMessages.js'
+    );
+
+    markProcessed('msg-unmark');
+    expect(isProcessed('msg-unmark')).toBe(true);
+
+    unmarkProcessed('msg-unmark');
+    expect(isProcessed('msg-unmark')).toBe(false);
+  });
+
+  it('存在しないメッセージの解除は false を返す', async () => {
+    const { unmarkProcessed } = await import(
+      '../src/stores/processedMessages.js'
+    );
+
+    expect(unmarkProcessed('msg-nonexistent')).toBe(false);
+  });
+
+  it('他のメッセージには影響しない', async () => {
+    const { markProcessed, isProcessed, unmarkProcessed } = await import(
+      '../src/stores/processedMessages.js'
+    );
+
+    markProcessed('msg-keep');
+    markProcessed('msg-remove');
+
+    unmarkProcessed('msg-remove');
+
+    expect(isProcessed('msg-keep')).toBe(true);
+    expect(isProcessed('msg-remove')).toBe(false);
   });
 });
 

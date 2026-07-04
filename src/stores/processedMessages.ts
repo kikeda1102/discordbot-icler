@@ -25,6 +25,13 @@ export const isProcessed = (messageId: string): boolean =>
   processedMessages.has(messageId);
 
 /**
+ * 処理済みマークを解除する
+ * フォールバック処理で抽出に失敗した場合に使用し、後続の messageUpdate で再処理可能にする
+ */
+export const unmarkProcessed = (messageId: string): boolean =>
+  processedMessages.delete(messageId);
+
+/**
  * 古いエントリを削除する
  */
 export const cleanupProcessedMessages = (): void => {

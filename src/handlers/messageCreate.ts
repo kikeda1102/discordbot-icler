@@ -24,7 +24,11 @@ import {
   getPendingEvent,
   updatePendingEvent,
 } from "../stores/pendingEvents.js";
-import { isProcessed, markProcessed } from "../stores/processedMessages.js";
+import {
+  isProcessed,
+  markProcessed,
+  unmarkProcessed,
+} from "../stores/processedMessages.js";
 import {
   isAwaiting,
   registerAwaiting,
@@ -355,21 +359,57 @@ function createMessageHandler(
             }
             markProcessed(message.id);
 
+            let anySuccess = false;
             for (const url of capturedUrls) {
-              await processEventExtraction(
+              const ok = await processEventExtraction(
                 refreshed,
                 refreshed.content,
                 refreshed.embeds,
                 url,
               );
+              if (ok) {
+                anySuccess = true;
+              }
+            }
+
+            if (!anySuccess && refreshed.embeds.length === 0) {
+              unmarkProcessed(message.id);
+              logger.info(
+                "フォールバック処理で抽出失敗（embed なし）、処理済みマークを解除しました",
+                { messageId: message.id },
+              );
+
+              // 抽出中に embed が届いていた場合の取りこぼしを防ぐ
+              const rechecked = await message.fetch();
+              if (rechecked.embeds.length > 0 && !isProcessed(message.id)) {
+                markProcessed(message.id);
+                for (const url of capturedUrls) {
+                  await processEventExtraction(
+                    rechecked,
+                    rechecked.content,
+                    rechecked.embeds,
+                    url,
+                  );
+                }
+              }
             }
           })
-          .catch((error: unknown) => {
+          .catch(async (error: unknown) => {
             if (error instanceof Error) {
-              logger.warn("フォールバック処理中にエラーが発生しました", {
+              logger.warn("フォールバック fetch 失敗、キャッシュで処理を試みます", {
                 messageId: message.id,
                 error: error.message,
               });
+            }
+            // fetch 失敗時はキャッシュ上のメッセージで処理を試みる
+            // markProcessed しないので、失敗しても messageUpdate 側で拾える
+            for (const url of capturedUrls) {
+              await processEventExtraction(
+                message,
+                message.content,
+                message.embeds,
+                url,
+              );
             }
           });
       }, EMBED_FALLBACK_TIMEOUT_MS);
@@ -391,18 +431,16 @@ export async function processEventExtraction(
   content: string,
   embeds: Embed[],
   url: string,
-): Promise<void> {
-  // イベント情報を抽出
+): Promise<boolean> {
   const eventResult = await extractEventFromMessage(content, embeds, url);
   if (!eventResult.success) {
     logger.warn("イベント情報の抽出に失敗しました", {
       url,
       reason: eventResult.reason,
     });
-    return;
+    return false;
   }
 
-  // 確認メッセージを送信
   await sendConfirmationMessage(
     message,
     eventResult.data,
@@ -410,6 +448,7 @@ export async function processEventExtraction(
     content,
     embeds,
   );
+  return true;
 }
 
 /**
