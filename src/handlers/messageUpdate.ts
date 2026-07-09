@@ -5,10 +5,18 @@
 
 import type { Client, Message, PartialMessage } from 'discord.js';
 import { extractXUrls } from '../services/urlExtractor.js';
-import { isProcessed, markProcessed } from '../stores/processedMessages.js';
+import {
+  isProcessed,
+  markProcessed,
+  unmarkProcessed,
+} from '../stores/processedMessages.js';
 import { consumeAwaiting } from '../stores/awaitingEmbeds.js';
 import { logger } from '../utils/logger.js';
-import { processEventExtraction } from './messageCreate.js';
+import {
+  processEventExtraction,
+  shouldUnmarkProcessed,
+  type ExtractionOutcome,
+} from './messageCreate.js';
 
 /**
  * messageUpdate ハンドラを生成する
@@ -67,8 +75,19 @@ const createMessageUpdateHandler = (
       embedCount: message.embeds.length,
     });
 
+    const outcomes: ExtractionOutcome[] = [];
     for (const url of result.data) {
-      await processEventExtraction(message, message.content, message.embeds, url);
+      outcomes.push(
+        await processEventExtraction(message, message.content, message.embeds, url),
+      );
+    }
+
+    // 回復経路である messageUpdate 自体が一時的失敗した場合も再処理可能な状態に戻す
+    if (shouldUnmarkProcessed(outcomes)) {
+      unmarkProcessed(message.id);
+      logger.info('messageUpdate 処理で一時的エラーが発生したため処理済みマークを解除しました', {
+        messageId: message.id,
+      });
     }
   };
 };

@@ -12,7 +12,8 @@ vi.mock('../src/stores/awaitingEmbeds.js', () => ({
 }));
 
 vi.mock('../src/handlers/messageCreate.js', () => ({
-  processEventExtraction: vi.fn(() => Promise.resolve(true)),
+  processEventExtraction: vi.fn(() => Promise.resolve('success')),
+  shouldUnmarkProcessed: vi.fn(() => false),
 }));
 
 vi.mock('../src/utils/logger.js', () => ({

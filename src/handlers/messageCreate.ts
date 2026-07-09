@@ -14,6 +14,7 @@ import { extractXUrls } from "../services/urlExtractor.js";
 import {
   extractEventFromMessage,
   reExtractEventWithCorrection,
+  NOT_EVENT_REASON,
 } from "../services/eventExtractor.js";
 import { logger } from "../utils/logger.js";
 import { formatDateTimeJapanese } from "../utils/dateFormatter.js";
@@ -35,6 +36,19 @@ import {
   removeAwaiting,
 } from "../stores/awaitingEmbeds.js";
 import { EMBED_FALLBACK_TIMEOUT_MS } from "../config/constants.js";
+
+/** イベント抽出処理の結果分類 */
+export type ExtractionOutcome = "success" | "notEvent" | "failure";
+
+/**
+ * 処理済みマークを解除すべきか
+ * 全 URL が確認メッセージなしで終わり、かつ一時的失敗（API エラー等）を含む場合のみ true。
+ * 成功が 1 つでもあれば解除しない（messageUpdate 再処理による確認メッセージの二重送信を防ぐ）。
+ * 全て notEvent の場合も解除しない（非イベントツイートの再抽出ループを防ぐ）。
+ */
+export const shouldUnmarkProcessed = (
+  outcomes: readonly ExtractionOutcome[],
+): boolean => !outcomes.includes("success") && outcomes.includes("failure");
 
 /**
  * Discord Embed をシリアライズ可能な形式に変換する
@@ -316,6 +330,7 @@ function createMessageHandler(
 
     if (message.embeds.length > 0) {
       // embed が既にある場合は即座に処理
+      // markProcessed は最初の await より前に行う（messageUpdate との競合防止）
       markProcessed(message.id);
 
       logger.debug("embed あり、即時処理します", {
@@ -323,12 +338,23 @@ function createMessageHandler(
         embedCount: message.embeds.length,
       });
 
+      const outcomes: ExtractionOutcome[] = [];
       for (const url of urls) {
-        await processEventExtraction(
-          message,
-          message.content,
-          message.embeds,
-          url,
+        outcomes.push(
+          await processEventExtraction(
+            message,
+            message.content,
+            message.embeds,
+            url,
+          ),
+        );
+      }
+
+      if (shouldUnmarkProcessed(outcomes)) {
+        unmarkProcessed(message.id);
+        logger.info(
+          "embed 即時処理で一時的エラーが発生したため処理済みマークを解除しました",
+          { messageId: message.id },
         );
       }
     } else {
@@ -359,23 +385,35 @@ function createMessageHandler(
             }
             markProcessed(message.id);
 
-            let anySuccess = false;
+            const outcomes: ExtractionOutcome[] = [];
             for (const url of capturedUrls) {
-              const ok = await processEventExtraction(
-                refreshed,
-                refreshed.content,
-                refreshed.embeds,
-                url,
+              outcomes.push(
+                await processEventExtraction(
+                  refreshed,
+                  refreshed.content,
+                  refreshed.embeds,
+                  url,
+                ),
               );
-              if (ok) {
-                anySuccess = true;
-              }
             }
 
-            if (!anySuccess && refreshed.embeds.length === 0) {
+            // embed ありで一時的失敗した場合も解除し、後続 messageUpdate で再処理可能にする
+            if (shouldUnmarkProcessed(outcomes)) {
               unmarkProcessed(message.id);
               logger.info(
-                "フォールバック処理で抽出失敗（embed なし）、処理済みマークを解除しました",
+                "フォールバック処理で一時的エラーが発生したため処理済みマークを解除しました",
+                { messageId: message.id },
+              );
+            }
+
+            if (
+              !outcomes.includes("success") &&
+              refreshed.embeds.length === 0
+            ) {
+              // embed が届かないまま失敗した場合は、embed 到着後の再処理に備えて解除する
+              unmarkProcessed(message.id);
+              logger.info(
+                "embed が届かないまま抽出に失敗したため処理済みマークを解除しました",
                 { messageId: message.id },
               );
 
@@ -383,12 +421,22 @@ function createMessageHandler(
               const rechecked = await message.fetch();
               if (rechecked.embeds.length > 0 && !isProcessed(message.id)) {
                 markProcessed(message.id);
+                const recheckedOutcomes: ExtractionOutcome[] = [];
                 for (const url of capturedUrls) {
-                  await processEventExtraction(
-                    rechecked,
-                    rechecked.content,
-                    rechecked.embeds,
-                    url,
+                  recheckedOutcomes.push(
+                    await processEventExtraction(
+                      rechecked,
+                      rechecked.content,
+                      rechecked.embeds,
+                      url,
+                    ),
+                  );
+                }
+                if (shouldUnmarkProcessed(recheckedOutcomes)) {
+                  unmarkProcessed(message.id);
+                  logger.info(
+                    "フォールバック再処理で一時的エラーが発生したため処理済みマークを解除しました",
+                    { messageId: message.id },
                   );
                 }
               }
@@ -425,20 +473,22 @@ function createMessageHandler(
  * @param content メッセージ本文
  * @param embeds 埋め込み情報
  * @param url X/Twitter URL
+ * @returns 抽出結果の分類（success / notEvent / failure）
  */
 export async function processEventExtraction(
   message: Message,
   content: string,
   embeds: Embed[],
   url: string,
-): Promise<boolean> {
+): Promise<ExtractionOutcome> {
   const eventResult = await extractEventFromMessage(content, embeds, url);
   if (!eventResult.success) {
     logger.warn("イベント情報の抽出に失敗しました", {
       url,
       reason: eventResult.reason,
     });
-    return false;
+    // 非イベント判定は正常系のスキップ、それ以外は再試行に値する一時的失敗
+    return eventResult.reason === NOT_EVENT_REASON ? "notEvent" : "failure";
   }
 
   await sendConfirmationMessage(
@@ -448,7 +498,7 @@ export async function processEventExtraction(
     content,
     embeds,
   );
-  return true;
+  return "success";
 }
 
 /**

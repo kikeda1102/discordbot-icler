@@ -27,6 +27,9 @@ const RETRY_CONFIG = {
   backoffMultiplier: 2,
 } as const;
 
+/** 非イベント判定の失敗 reason（呼び出し側で一時的失敗と区別するための SSOT） */
+export const NOT_EVENT_REASON = "イベント情報が含まれていません";
+
 /** リトライ対象の HTTP ステータス（レート制限 + サーバー側一時エラー） */
 const RETRYABLE_STATUS_CODES: ReadonlySet<number> = new Set([
   429, 500, 502, 503, 504,
@@ -626,7 +629,7 @@ export function buildEventInfoFromParsed(
     logger.info("イベント情報ではないためスキップします", { url: originalUrl });
     return {
       success: false,
-      reason: "イベント情報が含まれていません",
+      reason: NOT_EVENT_REASON,
     };
   }
 
