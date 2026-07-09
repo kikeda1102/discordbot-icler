@@ -111,6 +111,8 @@ export interface PendingEvent {
   userId: string;
   /** 作成日時のタイムスタンプ（タイムアウト用） */
   createdAt: number;
+  /** 元の投稿メッセージのID（キャンセル時のマーク解除用） */
+  originalMessageId: string;
   /** 確認メッセージのID */
   confirmationMessageId: string;
   /** 確認メッセージが送信されたチャンネルのID */

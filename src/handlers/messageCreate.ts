@@ -138,6 +138,7 @@ async function sendConfirmationMessage(
   const eventId = addPendingEvent({
     eventInfo,
     userId: message.author.id,
+    originalMessageId: message.id,
     confirmationMessageId: confirmationMessage.id,
     channelId: message.channelId,
     originalContent: content,

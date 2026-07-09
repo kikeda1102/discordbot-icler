@@ -27,6 +27,7 @@ import {
   isEventExpired,
   updatePendingEvent,
 } from "../stores/pendingEvents.js";
+import { unmarkProcessed } from "../stores/processedMessages.js";
 import { logger } from "../utils/logger.js";
 import { formatDateTimeJapanese } from "../utils/dateFormatter.js";
 import { buildSurveySuffix } from "../utils/survey.js";
@@ -428,6 +429,7 @@ async function handleForceCancelButton(
   }
 
   removePendingEvent(eventId);
+  unmarkProcessed(pending.originalMessageId);
 
   // まず Ephemeral メッセージで通知（インタラクションを応答）
   await interaction.reply({
@@ -442,6 +444,7 @@ async function handleForceCancelButton(
     eventId,
     title: pending.eventInfo.title,
     userId: interaction.user.id,
+    originalMessageId: pending.originalMessageId,
   });
 }
 
@@ -625,6 +628,7 @@ async function handleCancelButton(
   }
 
   removePendingEvent(eventId);
+  unmarkProcessed(pending.originalMessageId);
 
   // まず Ephemeral メッセージで通知（インタラクションを応答）
   await interaction.reply({
@@ -639,6 +643,7 @@ async function handleCancelButton(
     eventId,
     title: pending.eventInfo.title,
     userId: interaction.user.id,
+    originalMessageId: pending.originalMessageId,
   });
 }
 
