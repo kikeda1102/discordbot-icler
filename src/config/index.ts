@@ -49,6 +49,9 @@ function parseSurveyUrl(value: string | undefined): string | undefined {
 
 /** 設定を読み込み・バリデーション */
 function loadConfig(): Config {
+  const openaiKey = getEnvVar('OPENAI_API_KEY');
+  const anthropicKey = getEnvVar('ANTHROPIC_API_KEY');
+
   return {
     discord: {
       botToken: getRequiredEnvVar('DISCORD_BOT_TOKEN'),
@@ -63,6 +66,8 @@ function loadConfig(): Config {
     gemini: {
       apiKey: getRequiredEnvVar('GEMINI_API_KEY'),
     },
+    ...(openaiKey !== undefined && openaiKey !== '' ? { openai: { apiKey: openaiKey } } : {}),
+    ...(anthropicKey !== undefined && anthropicKey !== '' ? { anthropic: { apiKey: anthropicKey } } : {}),
     app: {
       logLevel: parseLogLevel(getEnvVar('LOG_LEVEL')),
       nodeEnv: getEnvVar('NODE_ENV') ?? 'development',

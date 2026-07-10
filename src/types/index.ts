@@ -35,6 +35,12 @@ export interface Config {
   gemini: {
     apiKey: string;
   };
+  openai?: {
+    apiKey: string;
+  };
+  anthropic?: {
+    apiKey: string;
+  };
   app: {
     logLevel: LogLevel;
     nodeEnv: string;

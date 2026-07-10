@@ -1,77 +1,25 @@
 /**
  * イベント情報抽出サービス
- * Google Gemini API を使用して Discord メッセージからイベント情報を抽出する
+ * LLM プロバイダーチェインを使用して Discord メッセージからイベント情報を抽出する
  */
 
 import type { Embed } from "discord.js";
-import type { Result, EventInfo, ImageData, EmbedLike, EmbedWithImage, ParsedEventInfo } from "../types/index.js";
+import type { Result, EventInfo, EmbedLike, EmbedWithImage, ParsedEventInfo } from "../types/index.js";
+import type { LlmProvider } from "./providers/types.js";
 import { getConfig } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 import { fetchMultipleImages } from "./imageService.js";
-
-/** Gemini API エンドポイント */
-const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-
-/** 使用するモデル（先頭がプライマリ、以降フォールバック順） */
-const GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"] as const;
-
-/** リトライ設定（Google推奨の指数バックオフ + ジッター） */
-const RETRY_CONFIG = {
-  /** モデルごとの最大リトライ回数（枯渇したら次のモデルへフォールバック） */
-  maxRetries: 2,
-  /** 初回待機時間（ミリ秒） */
-  initialDelayMs: 1000,
-  /** 最大待機時間（ミリ秒） */
-  maxDelayMs: 60000,
-  /** バックオフ倍率 */
-  backoffMultiplier: 2,
-} as const;
+import { buildProviderChain, callLlmApi } from "./providers/providerChain.js";
+import { sleep } from "./providers/retry.js";
 
 /** 非イベント判定の失敗 reason（呼び出し側で一時的失敗と区別するための SSOT） */
 export const NOT_EVENT_REASON = "イベント情報が含まれていません";
 
-/** リトライ対象の HTTP ステータス（レート制限 + サーバー側一時エラー） */
-const RETRYABLE_STATUS_CODES: ReadonlySet<number> = new Set([
-  429, 500, 502, 503, 504,
-]);
-
-/** 同一モデルでの再試行・別モデルへのフォールバックに値するステータスか */
-const isRetryableStatus = (status: number): boolean =>
-  RETRYABLE_STATUS_CODES.has(status);
-
 /** JSONパースエラー時のリトライ設定 */
 const JSON_PARSE_RETRY_CONFIG = {
-  /** 最大リトライ回数 */
   maxRetries: 2,
-  /** 待機時間（ミリ秒） */
   delayMs: 500,
-} as const;
-
-/**
- * 指定ミリ秒待機する
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * ジッター付き指数バックオフの待機時間を計算する
- * @param attempt リトライ回数（0始まり）
- * @returns 待機時間（ミリ秒）
- */
-function calculateBackoffDelay(attempt: number): number {
-  // 指数バックオフ: initialDelay * (multiplier ^ attempt)
-  const exponentialDelay =
-    RETRY_CONFIG.initialDelayMs *
-    Math.pow(RETRY_CONFIG.backoffMultiplier, attempt);
-
-  // 最大待機時間でキャップ
-  const cappedDelay = Math.min(exponentialDelay, RETRY_CONFIG.maxDelayMs);
-
-  // ジッター: 0.5〜1.5倍のランダム変動を追加
-  const jitter = 0.5 + Math.random();
-  return Math.floor(cappedDelay * jitter);
-}
+};
 
 /**
  * イベント抽出のプロンプトを生成する
@@ -168,229 +116,23 @@ ${imageInstruction}
 }`;
 }
 
-// ParsedEventInfo は types/index.ts からインポート
+/** プロバイダーチェインの遅延初期化 */
+let providerChain: readonly LlmProvider[] | null = null;
 
-/** Gemini API レスポンスの型 */
-interface GeminiResponse {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
-  error?: {
-    message: string;
-  };
-}
-
-/** Gemini API リクエストの parts 型 */
-type GeminiPart =
-  | { text: string }
-  | { inlineData: { mimeType: string; data: string } };
-
-/** モデル単位の API 呼び出し結果（retryable は別モデルへのフォールバック可否） */
-type GeminiCallResult =
-  | { success: true; data: string }
-  | { success: false; reason: string; retryable: boolean };
-
-/**
- * 指定モデルで Gemini API を呼び出す（一時エラーは指数バックオフでリトライ）
- * @param model 使用するモデル名
- * @param prompt プロンプトテキスト
- * @param images 画像データ（オプション）- Vision API で画像解析する場合に使用
- */
-async function callGeminiApiWithModel(
-  model: string,
-  prompt: string,
-  images?: ImageData[],
-): Promise<GeminiCallResult> {
-  const config = getConfig();
-  const url = `${GEMINI_API_BASE}/models/${model}:generateContent?key=${config.gemini.apiKey}`;
-
-  // parts 配列を構築（テキスト + 画像）
-  const parts: GeminiPart[] = [{ text: prompt }];
-
-  // 画像がある場合は inlineData として追加
-  if (images !== undefined && images.length > 0) {
-    for (const image of images) {
-      parts.push({
-        inlineData: {
-          mimeType: image.mimeType,
-          data: image.base64Data,
-        },
-      });
-    }
+const getProviderChain = (): readonly LlmProvider[] => {
+  if (providerChain === null) {
+    providerChain = buildProviderChain(getConfig());
+    logger.info("LLM プロバイダーチェインを初期化しました", {
+      providers: providerChain.map((p) => p.name),
+    });
   }
+  return providerChain;
+};
 
-  const requestBody = {
-    contents: [
-      {
-        parts,
-      },
-    ],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 1024,
-    },
-  };
-
-  for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        const retryable = isRetryableStatus(response.status);
-
-        // 429/5xx は一時エラーとして同一モデルでリトライ
-        if (retryable && attempt < RETRY_CONFIG.maxRetries) {
-          const delayMs = calculateBackoffDelay(attempt);
-          logger.warn("Gemini API 一時エラー。リトライします", {
-            model,
-            status: response.status,
-            attempt: attempt + 1,
-            maxRetries: RETRY_CONFIG.maxRetries + 1,
-            delayMs,
-          });
-          await sleep(delayMs);
-          continue;
-        }
-
-        return {
-          success: false,
-          retryable,
-          reason: `Gemini API エラー: ${response.status} ${errorText}`,
-        };
-      }
-
-      const json: unknown = await response.json();
-
-      if (!isGeminiResponse(json)) {
-        return {
-          success: false,
-          retryable: false,
-          reason: "Gemini API レスポンスの形式が不正です",
-        };
-      }
-
-      if (json.error !== undefined) {
-        return {
-          success: false,
-          retryable: false,
-          reason: `Gemini API エラー: ${json.error.message}`,
-        };
-      }
-
-      const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text === undefined) {
-        return {
-          success: false,
-          retryable: false,
-          reason: "Gemini API からテキストレスポンスがありません",
-        };
-      }
-
-      // リトライ成功時はログ出力
-      if (attempt > 0) {
-        logger.info("Gemini API リトライ成功", { model, attempt: attempt + 1 });
-      }
-
-      return {
-        success: true,
-        data: text,
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "不明なエラー";
-
-      // ネットワークエラーもリトライ対象
-      if (attempt < RETRY_CONFIG.maxRetries) {
-        const delayMs = calculateBackoffDelay(attempt);
-        logger.warn("Gemini API 呼び出しエラー。リトライします", {
-          model,
-          attempt: attempt + 1,
-          maxRetries: RETRY_CONFIG.maxRetries + 1,
-          delayMs,
-          error: message,
-        });
-        await sleep(delayMs);
-        continue;
-      }
-
-      // ネットワーク起因はモデル切り替えで解消する可能性があるため retryable
-      return {
-        success: false,
-        retryable: true,
-        reason: `Gemini API 呼び出しエラー: ${message}`,
-      };
-    }
-  }
-
-  // ループ内で必ず return するため到達しない（型検査のためのフォールバック）
-  return {
-    success: false,
-    retryable: false,
-    reason: "Gemini API 呼び出しに失敗しました",
-  };
-}
-
-/**
- * Gemini API を呼び出す（一時エラーはリトライし、モデルリスト順にフォールバック）
- * @param prompt プロンプトテキスト
- * @param images 画像データ（オプション）
- */
-export async function callGeminiApi(
-  prompt: string,
-  images?: ImageData[],
-): Promise<Result<string>> {
-  const failures: string[] = [];
-
-  for (const [index, model] of GEMINI_MODELS.entries()) {
-    const result = await callGeminiApiWithModel(model, prompt, images);
-
-    if (result.success) {
-      if (index > 0) {
-        logger.info("フォールバックモデルで成功しました", { model });
-      }
-      return { success: true, data: result.data };
-    }
-
-    failures.push(`${model}: ${result.reason}`);
-
-    // モデルを変えても解消しない失敗（400 等）は即座に打ち切る
-    if (!result.retryable) {
-      return { success: false, reason: result.reason };
-    }
-
-    if (index < GEMINI_MODELS.length - 1) {
-      logger.warn("フォールバックモデルへ切り替えます", {
-        failedModel: model,
-        nextModel: GEMINI_MODELS[index + 1],
-      });
-    }
-  }
-
-  return {
-    success: false,
-    reason: `Gemini API 全モデルで失敗: ${failures.join(" / ")}`,
-  };
-}
-
-/**
- * Gemini API レスポンスの型ガード
- */
-function isGeminiResponse(value: unknown): value is GeminiResponse {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  return true;
-}
+/** プロバイダーチェインをリセットする（テスト用） */
+export const resetProviderChain = (): void => {
+  providerChain = null;
+};
 
 /**
  * Embed から画像URLを抽出する
@@ -464,18 +206,18 @@ ${userMessage}`;
     userMessage,
   });
 
-  // Gemini API を呼び出し（JSONパースエラー時はリトライ）
+  // LLM API を呼び出し（JSONパースエラー時はリトライ）
   let parsed: ParsedEventInfo | undefined;
   let lastError = "";
 
   for (let attempt = 0; attempt <= JSON_PARSE_RETRY_CONFIG.maxRetries; attempt++) {
-    // Gemini API を呼び出し（画像がある場合は Vision API として使用）
-    const apiResult = await callGeminiApi(
+    const apiResult = await callLlmApi(
+      getProviderChain(),
       fullPrompt,
       hasImages ? images : undefined,
     );
     if (!apiResult.success) {
-      logger.error("Gemini API 呼び出しに失敗しました", {
+      logger.error("LLM API 呼び出しに失敗しました", {
         url: originalUrl,
         reason: apiResult.reason,
       });
@@ -811,18 +553,18 @@ ${userMessage}`,
     correction,
   });
 
-  // Gemini API を呼び出し（JSONパースエラー時はリトライ）
+  // LLM API を呼び出し（JSONパースエラー時はリトライ）
   let parsed: ParsedEventInfo | undefined;
   let lastError = "";
 
   for (let attempt = 0; attempt <= JSON_PARSE_RETRY_CONFIG.maxRetries; attempt++) {
-    // Gemini API を呼び出し
-    const apiResult = await callGeminiApi(
+    const apiResult = await callLlmApi(
+      getProviderChain(),
       fullPrompt,
-      hasImages ? images : undefined
+      hasImages ? images : undefined,
     );
     if (!apiResult.success) {
-      logger.error("Gemini API 呼び出しに失敗しました", {
+      logger.error("LLM API 呼び出しに失敗しました", {
         url: originalUrl,
         reason: apiResult.reason,
       });

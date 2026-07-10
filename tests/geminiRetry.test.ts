@@ -1,12 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Mock } from "vitest";
 
-vi.mock("../src/config/index.js", () => ({
-  getConfig: vi.fn(() => ({
-    gemini: { apiKey: "test-api-key" },
-  })),
-}));
-
 vi.mock("../src/utils/logger.js", () => ({
   logger: {
     info: vi.fn(),
@@ -16,7 +10,7 @@ vi.mock("../src/utils/logger.js", () => ({
   },
 }));
 
-import { callGeminiApi } from "../src/services/eventExtractor.js";
+import { createGeminiProvider } from "../src/services/providers/gemini.js";
 
 const PRIMARY_MODEL = "gemini-2.5-flash-lite";
 const FALLBACK_MODEL = "gemini-2.5-flash";
@@ -37,16 +31,17 @@ const fetchedUrl = (fetchMock: Mock, index: number): string => {
   return call[0];
 };
 
-/** バックオフ待機（fake timers）を進めながら callGeminiApi を完了させる */
+/** バックオフ待機（fake timers）を進めながら provider.call を完了させる */
 const runCall = async (
   prompt: string,
-): Promise<Awaited<ReturnType<typeof callGeminiApi>>> => {
-  const resultPromise = callGeminiApi(prompt);
+): Promise<ReturnType<ReturnType<typeof createGeminiProvider>["call"]> extends Promise<infer R> ? R : never> => {
+  const provider = createGeminiProvider("test-api-key");
+  const resultPromise = provider.call(prompt);
   await vi.runAllTimersAsync();
   return resultPromise;
 };
 
-describe("callGeminiApi のリトライとフォールバック", () => {
+describe("Gemini プロバイダーのリトライとフォールバック", () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
@@ -83,7 +78,6 @@ describe("callGeminiApi のリトライとフォールバック", () => {
     const result = await runCall("prompt");
 
     expect(result.success).toBe(true);
-    // プライマリ 3 試行 + フォールバック 1 試行
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(fetchedUrl(fetchMock, 2)).toContain(`${PRIMARY_MODEL}:`);
     expect(fetchedUrl(fetchMock, 3)).toContain(`/${FALLBACK_MODEL}:`);
@@ -138,7 +132,6 @@ describe("callGeminiApi のリトライとフォールバック", () => {
   });
 
   it("全モデル全試行が 503 なら fetch 6 回で失敗し、両モデル名が reason に入る", async () => {
-    // Response の body は一度しか読めないため、呼び出しごとに新しいインスタンスを返す
     fetchMock.mockImplementation(() =>
       Promise.resolve(httpResponse(503, "overloaded")),
     );
