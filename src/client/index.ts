@@ -43,11 +43,11 @@ export const registerConnectionLogger = (client: Client): void => {
   });
 
   client.on('shardReconnecting', (shardId) => {
-    logger.info('Discord Gateway に再接続しています', { shardId });
+    logger.debug('Discord Gateway に再接続しています', { shardId });
   });
 
   client.on('shardResume', (shardId, replayedEvents) => {
-    logger.info('Discord Gateway に再接続しました', {
+    logger.debug('Discord Gateway に再接続しました', {
       shardId,
       replayedEvents,
     });
@@ -64,7 +64,7 @@ export const registerConnectionLogger = (client: Client): void => {
     logger.error('Discord セッションが無効化されました');
   });
 
-  logger.info('接続監視ログを登録しました');
+  logger.debug('接続監視ログを登録しました');
 };
 
 /**

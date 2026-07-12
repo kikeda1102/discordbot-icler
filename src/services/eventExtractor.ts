@@ -122,7 +122,7 @@ let providerChain: readonly LlmProvider[] | null = null;
 const getProviderChain = (): readonly LlmProvider[] => {
   if (providerChain === null) {
     providerChain = buildProviderChain(getConfig());
-    logger.info("LLM プロバイダーチェインを初期化しました", {
+    logger.debug("LLM プロバイダーチェインを初期化しました", {
       providers: providerChain.map((p) => p.name),
     });
   }
@@ -198,12 +198,11 @@ export async function extractEventFromMessage(
 
 ${userMessage}`;
 
-  logger.info("イベント情報の抽出を開始します", {
+  logger.debug("イベント情報の抽出を開始します", {
     url: originalUrl,
     contentLength: content.length,
     embedCount: embeds.length,
     imageCount: images.length,
-    userMessage,
   });
 
   // LLM API を呼び出し（JSONパースエラー時はリトライ）
@@ -303,7 +302,7 @@ export function parseEventJson(jsonString: string): Result<ParsedEventInfo> {
       };
     }
 
-    logger.info("Gemini APIからの抽出結果（デバッグ用）", {
+    logger.debug("LLM APIからの抽出結果", {
       rawJson: cleanJson,
       parsedStartTime: parsed.startTime,
       parsedEndTime: parsed.endTime,

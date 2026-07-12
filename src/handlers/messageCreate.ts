@@ -319,20 +319,18 @@ function createMessageHandler(
       return;
     }
 
-    // URL が見つかった場合はログ出力
-    logger.info("X/Twitter URL を検出しました", {
-      urls: result.data,
-      messageId: message.id,
-      authorId: message.author.id,
-      channelId: message.channelId,
-    });
-
     const urls = result.data;
 
     if (message.embeds.length > 0) {
       // embed が既にある場合は即座に処理
       // markProcessed は最初の await より前に行う（messageUpdate との競合防止）
       markProcessed(message.id);
+
+      logger.info("X/Twitter URL を検出しました", {
+        urls,
+        messageId: message.id,
+        channelId: message.channelId,
+      });
 
       logger.debug("embed あり、即時処理します", {
         messageId: message.id,
@@ -484,11 +482,12 @@ export async function processEventExtraction(
 ): Promise<ExtractionOutcome> {
   const eventResult = await extractEventFromMessage(content, embeds, url);
   if (!eventResult.success) {
-    logger.warn("イベント情報の抽出に失敗しました", {
-      url,
-      reason: eventResult.reason,
-    });
-    // 非イベント判定は正常系のスキップ、それ以外は再試行に値する一時的失敗
+    if (eventResult.reason !== NOT_EVENT_REASON) {
+      logger.warn("イベント情報の抽出に失敗しました", {
+        url,
+        reason: eventResult.reason,
+      });
+    }
     return eventResult.reason === NOT_EVENT_REASON ? "notEvent" : "failure";
   }
 
@@ -530,5 +529,5 @@ export function registerMessageHandler(
     });
   });
 
-  logger.info("messageCreate ハンドラを登録しました", { channelIds });
+  logger.debug("messageCreate ハンドラを登録しました", { channelIds });
 }

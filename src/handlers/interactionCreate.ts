@@ -662,5 +662,5 @@ export function registerInteractionHandler(client: Client): void {
     });
   });
 
-  logger.info("interactionCreate ハンドラを登録しました");
+  logger.debug("interactionCreate ハンドラを登録しました");
 }

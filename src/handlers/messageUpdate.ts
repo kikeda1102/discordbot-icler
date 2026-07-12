@@ -67,12 +67,12 @@ const createMessageUpdateHandler = (
     consumeAwaiting(message.id);
     markProcessed(message.id);
 
-    logger.info('messageUpdate で X/Twitter URL を検出しました', {
+    logger.info('X/Twitter URL を検出しました', {
       urls: result.data,
       messageId: message.id,
-      authorId: message.author.id,
       channelId: message.channelId,
       embedCount: message.embeds.length,
+      source: 'messageUpdate',
     });
 
     const outcomes: ExtractionOutcome[] = [];
@@ -117,5 +117,5 @@ export const registerMessageUpdateHandler = (
     });
   });
 
-  logger.info('messageUpdate ハンドラを登録しました', { channelIds });
+  logger.debug('messageUpdate ハンドラを登録しました', { channelIds });
 };
