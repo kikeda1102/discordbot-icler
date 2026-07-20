@@ -10,7 +10,7 @@ import { logger } from "../../utils/logger.js";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
-const GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+const GEMINI_MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash"];
 
 interface GeminiResponse {
   candidates?: Array<{
@@ -186,10 +186,6 @@ export const createGeminiProvider = (apiKey: string): LlmProvider => ({
       }
 
       failures.push(`${model}: ${result.reason}`);
-
-      if (!result.retryable) {
-        return result;
-      }
 
       if (index < GEMINI_MODELS.length - 1) {
         logger.warn("フォールバックモデルへ切り替えます", {

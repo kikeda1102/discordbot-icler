@@ -12,8 +12,8 @@ vi.mock("../src/utils/logger.js", () => ({
 
 import { createGeminiProvider } from "../src/services/providers/gemini.js";
 
-const PRIMARY_MODEL = "gemini-2.5-flash-lite";
-const FALLBACK_MODEL = "gemini-2.5-flash";
+const PRIMARY_MODEL = "gemini-3.1-flash-lite";
+const FALLBACK_MODEL = "gemini-3.5-flash";
 
 const successBody = JSON.stringify({
   candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }],
@@ -83,16 +83,30 @@ describe("Gemini プロバイダーのリトライとフォールバック", () 
     expect(fetchedUrl(fetchMock, 3)).toContain(`/${FALLBACK_MODEL}:`);
   });
 
-  it("400 はリトライもフォールバックもせず即失敗する", async () => {
-    fetchMock.mockResolvedValueOnce(httpResponse(400, "bad request"));
+  it("400 はリトライせず次モデルへフォールバックする", async () => {
+    fetchMock
+      .mockResolvedValueOnce(httpResponse(400, "bad request"))
+      .mockResolvedValueOnce(httpResponse(200, successBody));
 
     const result = await runCall("prompt");
 
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.reason).toContain("400");
-    }
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchedUrl(fetchMock, 0)).toContain(`${PRIMARY_MODEL}:`);
+    expect(fetchedUrl(fetchMock, 1)).toContain(`/${FALLBACK_MODEL}:`);
+  });
+
+  it("404 はリトライせず次モデルへフォールバックする（モデル提供停止対策）", async () => {
+    fetchMock
+      .mockResolvedValueOnce(httpResponse(404, "model not found"))
+      .mockResolvedValueOnce(httpResponse(200, successBody));
+
+    const result = await runCall("prompt");
+
+    expect(result.success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchedUrl(fetchMock, 0)).toContain(`${PRIMARY_MODEL}:`);
+    expect(fetchedUrl(fetchMock, 1)).toContain(`/${FALLBACK_MODEL}:`);
   });
 
   it("429 はリトライされる（リグレッションガード）", async () => {
