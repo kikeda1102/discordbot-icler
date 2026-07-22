@@ -21,6 +21,7 @@ import { formatDateTimeJapanese } from "../utils/dateFormatter.js";
 import type { EventInfo, SerializedEmbed } from "../types/index.js";
 import {
   addPendingEvent,
+  generateEventId,
   getEventIdByMessageId,
   getPendingEvent,
   updatePendingEvent,
@@ -108,46 +109,13 @@ async function sendConfirmationMessage(
   content: string,
   embeds: Embed[],
 ): Promise<void> {
-  // 確認メッセージの内容を生成
   const confirmationContent = buildConfirmationContent(eventInfo, originalUrl);
 
-  // まず仮のIDでボタンを作成（後で更新）
-  const tempId = "temp";
+  // eventId を先に生成し、最初から正しい customId でボタンを作成する
+  // （仮IDで送信→編集の2段階方式はレースコンディションを起こすため廃止）
+  const eventId = generateEventId();
+
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`event_register_${tempId}`)
-      .setLabel("登録する")
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId(`event_cancel_${tempId}`)
-      .setLabel("キャンセル")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("event_help")
-      .setLabel("使い方")
-      .setStyle(ButtonStyle.Secondary),
-  );
-
-  // 確認メッセージを送信
-  const confirmationMessage = await message.reply({
-    content: confirmationContent,
-    components: [row],
-  });
-
-  // pendingEvents に登録して eventId を取得
-  const eventId = addPendingEvent({
-    eventInfo,
-    userId: message.author.id,
-    originalMessageId: message.id,
-    confirmationMessageId: confirmationMessage.id,
-    channelId: message.channelId,
-    originalContent: content,
-    originalEmbeds: embeds.map(serializeEmbed),
-    originalUrl,
-  });
-
-  // 正しい eventId でボタンを更新
-  const updatedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`event_register_${eventId}`)
       .setLabel("登録する")
@@ -162,9 +130,20 @@ async function sendConfirmationMessage(
       .setStyle(ButtonStyle.Secondary),
   );
 
-  await confirmationMessage.edit({
+  const confirmationMessage = await message.reply({
     content: confirmationContent,
-    components: [updatedRow],
+    components: [row],
+  });
+
+  addPendingEvent(eventId, {
+    eventInfo,
+    userId: message.author.id,
+    originalMessageId: message.id,
+    confirmationMessageId: confirmationMessage.id,
+    channelId: message.channelId,
+    originalContent: content,
+    originalEmbeds: embeds.map(serializeEmbed),
+    originalUrl,
   });
 
   logger.info("確認メッセージを送信しました", {

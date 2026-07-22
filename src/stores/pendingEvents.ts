@@ -23,21 +23,19 @@ const messageToEventId = new Map<string, string>();
 let cleanupTimerId: ReturnType<typeof setInterval> | null = null;
 
 /**
- * UUID を生成する
+ * イベントIDを生成する
  */
-function generateEventId(): string {
-  return crypto.randomUUID();
-}
+export const generateEventId = (): string => crypto.randomUUID();
 
 /**
  * 確認待ちイベントを追加する
+ * @param eventId 事前に生成されたイベントID
  * @param pendingEvent 追加するイベント情報
- * @returns 生成されたイベントID
  */
-export function addPendingEvent(
+export const addPendingEvent = (
+  eventId: string,
   pendingEvent: Omit<PendingEvent, "createdAt">,
-): string {
-  const eventId = generateEventId();
+): void => {
   const fullEvent: PendingEvent = {
     ...pendingEvent,
     createdAt: Date.now(),
@@ -51,9 +49,7 @@ export function addPendingEvent(
     confirmationMessageId: pendingEvent.confirmationMessageId,
     userId: pendingEvent.userId,
   });
-
-  return eventId;
-}
+};
 
 /**
  * イベントIDで確認待ちイベントを取得する

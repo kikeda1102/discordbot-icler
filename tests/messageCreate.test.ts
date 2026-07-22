@@ -14,7 +14,8 @@ vi.mock("../src/stores/awaitingEmbeds.js", () => ({
 }));
 
 vi.mock("../src/stores/pendingEvents.js", () => ({
-  addPendingEvent: vi.fn(() => "event-1"),
+  generateEventId: vi.fn(() => "event-1"),
+  addPendingEvent: vi.fn(),
   getEventIdByMessageId: vi.fn(() => undefined),
   getPendingEvent: vi.fn(() => undefined),
   updatePendingEvent: vi.fn(),

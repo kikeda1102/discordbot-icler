@@ -653,11 +653,27 @@ async function handleCancelButton(
  */
 export function registerInteractionHandler(client: Client): void {
   client.on("interactionCreate", (interaction) => {
-    handleButtonClick(interaction).catch((error: unknown) => {
-      if (error instanceof Error) {
-        logger.error("インタラクション処理中にエラーが発生しました", {
-          error: error.message,
-        });
+    handleButtonClick(interaction).catch(async (error: unknown) => {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error("インタラクション処理中にエラーが発生しました", {
+        error: errorMessage,
+      });
+
+      if (
+        interaction.isRepliable() &&
+        !interaction.replied &&
+        !interaction.deferred
+      ) {
+        try {
+          await interaction.reply({
+            content:
+              "❌ 処理中にエラーが発生しました。もう一度お試しください。",
+            flags: MessageFlags.Ephemeral,
+          });
+        } catch {
+          logger.warn("エラー応答の送信にも失敗しました");
+        }
       }
     });
   });
