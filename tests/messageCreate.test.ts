@@ -25,6 +25,7 @@ vi.mock("../src/services/eventExtractor.js", () => ({
   extractEventFromMessage: vi.fn(),
   reExtractEventWithCorrection: vi.fn(),
   NOT_EVENT_REASON: "イベント情報が含まれていません",
+  PAST_EVENT_REASON: "イベントの開始日時が過去のため無視します",
 }));
 
 vi.mock("../src/utils/logger.js", () => ({

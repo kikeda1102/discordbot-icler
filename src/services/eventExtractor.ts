@@ -7,6 +7,7 @@ import type { Embed } from "discord.js";
 import type { Result, EventInfo, EmbedLike, EmbedWithImage, ParsedEventInfo } from "../types/index.js";
 import type { LlmProvider } from "./providers/types.js";
 import { getConfig } from "../config/index.js";
+import { EVENT_START_MAX_PAST_MS } from "../config/constants.js";
 import { logger } from "../utils/logger.js";
 import { fetchMultipleImages } from "./imageService.js";
 import { buildProviderChain, callLlmApi } from "./providers/providerChain.js";
@@ -14,6 +15,9 @@ import { sleep } from "./providers/retry.js";
 
 /** 非イベント判定の失敗 reason（呼び出し側で一時的失敗と区別するための SSOT） */
 export const NOT_EVENT_REASON = "イベント情報が含まれていません";
+
+/** 過去イベント判定の失敗 reason（非リトライ対象） */
+export const PAST_EVENT_REASON = "イベントの開始日時が過去のため無視します";
 
 /** JSONパースエラー時のリトライ設定 */
 const JSON_PARSE_RETRY_CONFIG = {
@@ -388,6 +392,19 @@ export function buildEventInfoFromParsed(
     return {
       success: false,
       reason: "抽出された日時の形式が不正です",
+    };
+  }
+
+  // 開始日時が過去すぎる場合は拒否（LLM の日付解釈ミスへの対策）
+  const pastThresholdMs = Date.now() - EVENT_START_MAX_PAST_MS;
+  if (startTime.getTime() < pastThresholdMs) {
+    logger.info("イベントの開始日時が過去のためスキップします", {
+      url: originalUrl,
+      startTime: parsed.startTime,
+    });
+    return {
+      success: false,
+      reason: PAST_EVENT_REASON,
     };
   }
 

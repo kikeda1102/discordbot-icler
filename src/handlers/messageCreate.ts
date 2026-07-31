@@ -15,6 +15,7 @@ import {
   extractEventFromMessage,
   reExtractEventWithCorrection,
   NOT_EVENT_REASON,
+  PAST_EVENT_REASON,
 } from "../services/eventExtractor.js";
 import { logger } from "../utils/logger.js";
 import { formatDateTimeJapanese } from "../utils/dateFormatter.js";
@@ -461,13 +462,16 @@ export async function processEventExtraction(
 ): Promise<ExtractionOutcome> {
   const eventResult = await extractEventFromMessage(content, embeds, url);
   if (!eventResult.success) {
-    if (eventResult.reason !== NOT_EVENT_REASON) {
+    const isNonRetryable =
+      eventResult.reason === NOT_EVENT_REASON ||
+      eventResult.reason === PAST_EVENT_REASON;
+    if (!isNonRetryable) {
       logger.warn("イベント情報の抽出に失敗しました", {
         url,
         reason: eventResult.reason,
       });
     }
-    return eventResult.reason === NOT_EVENT_REASON ? "notEvent" : "failure";
+    return isNonRetryable ? "notEvent" : "failure";
   }
 
   await sendConfirmationMessage(

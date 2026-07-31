@@ -12,6 +12,7 @@ import {
 } from '../stores/processedMessages.js';
 import { consumeAwaiting } from '../stores/awaitingEmbeds.js';
 import { logger } from '../utils/logger.js';
+import { MESSAGE_UPDATE_MAX_AGE_MS } from '../config/constants.js';
 import {
   processEventExtraction,
   shouldUnmarkProcessed,
@@ -26,10 +27,20 @@ const createMessageUpdateHandler = (
   clientUserId: string,
 ) => {
   return async (
-    _oldMessage: Message | PartialMessage,
+    oldMessage: Message | PartialMessage,
     newMessage: Message | PartialMessage,
   ): Promise<void> => {
     if (!channelIds.includes(newMessage.channelId)) {
+      return;
+    }
+
+    // createdTimestamp は Snowflake ID から計算されるため partial でも利用可能
+    const messageAgeMs = Date.now() - newMessage.createdTimestamp;
+    if (messageAgeMs > MESSAGE_UPDATE_MAX_AGE_MS) {
+      logger.debug('古いメッセージの更新を無視します', {
+        messageId: newMessage.id,
+        ageMs: messageAgeMs,
+      });
       return;
     }
 
@@ -52,6 +63,16 @@ const createMessageUpdateHandler = (
 
     // embed がなければスキップ（embed 追加以外の更新には興味がない）
     if (message.embeds.length === 0) {
+      return;
+    }
+
+    // oldMessage が partial でない場合、embed が実際に追加されたかを確認する
+    if (!oldMessage.partial && message.embeds.length <= oldMessage.embeds.length) {
+      logger.debug('embed が追加されていないためスキップします', {
+        messageId: message.id,
+        oldEmbedCount: oldMessage.embeds.length,
+        newEmbedCount: message.embeds.length,
+      });
       return;
     }
 

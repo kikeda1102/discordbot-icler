@@ -47,6 +47,7 @@ const createMockMessage = (
     embedCount: number;
     id: string;
     partial: boolean;
+    createdTimestamp: number;
   }> = {},
 ): Message => {
   const embedCount = overrides.embedCount ?? 1;
@@ -55,6 +56,7 @@ const createMockMessage = (
     channelId: overrides.channelId ?? MONITORED_CHANNEL,
     system: overrides.system ?? false,
     partial: overrides.partial ?? false,
+    createdTimestamp: overrides.createdTimestamp ?? Date.now(),
     content:
       overrides.content ?? 'https://x.com/test/status/123456789',
     author: {
@@ -69,11 +71,21 @@ const createMockMessage = (
   } as unknown as Message;
 };
 
-const createMockPartialMessage = (): PartialMessage =>
+const createMockPartialMessage = (
+  overrides: Partial<{
+    createdTimestamp: number;
+    embedCount: number;
+  }> = {},
+): PartialMessage =>
   ({
     id: 'old-msg',
     channelId: MONITORED_CHANNEL,
     partial: true,
+    createdTimestamp: overrides.createdTimestamp ?? Date.now(),
+    embeds: Array.from({ length: overrides.embedCount ?? 0 }, () => ({
+      title: 'Test',
+      description: 'Test embed',
+    })),
   }) as unknown as PartialMessage;
 
 /**
@@ -218,6 +230,41 @@ describe('messageUpdate ハンドラ', () => {
       message,
       message.content,
       message.embeds,
+      'https://x.com/test/status/123456789',
+    );
+  });
+
+  it('古いメッセージの更新は無視する', async () => {
+    const handler = setupHandler();
+    const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+    const message = createMockMessage({ createdTimestamp: tenMinutesAgo });
+
+    await handler(createMockPartialMessage(), message);
+
+    expect(processEventExtraction).not.toHaveBeenCalled();
+  });
+
+  it('oldMessage が partial でなく embed が追加されていない場合は無視する', async () => {
+    const handler = setupHandler();
+    const oldMessage = createMockMessage({ embedCount: 1 });
+    const newMessage = createMockMessage({ embedCount: 1 });
+
+    await handler(oldMessage, newMessage);
+
+    expect(processEventExtraction).not.toHaveBeenCalled();
+  });
+
+  it('oldMessage が partial でなく embed が追加された場合は処理する', async () => {
+    const handler = setupHandler();
+    const oldMessage = createMockMessage({ embedCount: 0 });
+    const newMessage = createMockMessage({ embedCount: 1 });
+
+    await handler(oldMessage, newMessage);
+
+    expect(processEventExtraction).toHaveBeenCalledWith(
+      newMessage,
+      newMessage.content,
+      newMessage.embeds,
       'https://x.com/test/status/123456789',
     );
   });

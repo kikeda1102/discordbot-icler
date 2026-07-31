@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   formatEmbedsToTexts,
   parseEventJson,
@@ -361,6 +361,15 @@ describe("parseEventJson", () => {
 describe("buildEventInfoFromParsed", () => {
   const testUrl = "https://x.com/test/status/123";
 
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-01-01T00:00:00+09:00"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("有効なイベント情報から EventInfo を構築できる", () => {
     const parsed: ParsedEventInfo = {
       isEvent: true,
@@ -494,6 +503,25 @@ describe("buildEventInfoFromParsed", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.location).toBeUndefined();
+    }
+  });
+
+  it("開始日時が過去24時間以上前の場合は失敗を返す", () => {
+    const parsed: ParsedEventInfo = {
+      isEvent: true,
+      hasTime: true,
+      title: "過去のイベント",
+      startTime: "2024-06-01T22:00:00+09:00",
+      endTime: "2024-06-02T05:00:00+09:00",
+      location: "渋谷",
+      description: "半年前のイベント",
+    };
+
+    const result = buildEventInfoFromParsed(parsed, testUrl, "テスト");
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toBe("イベントの開始日時が過去のため無視します");
     }
   });
 });
