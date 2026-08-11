@@ -2,6 +2,7 @@ import type { ImageData } from "../../types/index.js";
 import type { LlmCallResult, LlmProvider } from "./types.js";
 import {
   DEFAULT_RETRY_CONFIG,
+  FETCH_TIMEOUT_MS,
   isRetryableStatus,
   sleep,
   calculateBackoffDelay,
@@ -67,6 +68,7 @@ const callOpenAIApi = async (
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
 
       if (!response.ok) {

@@ -49,6 +49,9 @@ const SELECT_PREFIX = {
 
 const CALENDAR_URL = "https://icler-calendar.vercel.app/";
 
+// ボタン連打による重複登録を防ぐ
+const inFlightEventIds = new Set<string>();
+
 /**
  * イベント情報を完了メッセージ用にフォーマットする
  */
@@ -185,103 +188,110 @@ async function handleRegisterButton(
   // タイムアウトチェック
   if (isEventExpired(eventId)) {
     removePendingEvent(eventId);
-    // まず Ephemeral メッセージで通知（インタラクションを応答）
     await interaction.reply({
       content: "⏰ タイムアウトしました。もう一度投稿してください。",
       flags: MessageFlags.Ephemeral,
     });
-    // その後に確認メッセージを削除
     await deleteConfirmationMessage(interaction);
     return;
   }
 
-  // 類似イベントをチェック
-  await interaction.deferUpdate();
-
-  const similarResult = await findSimilarEvents(pending.eventInfo);
-
-  if (!similarResult.success) {
-    logger.warn("類似イベント検索に失敗しましたが、登録を続行します", {
-      reason: similarResult.reason,
+  if (inFlightEventIds.has(eventId)) {
+    await interaction.reply({
+      content: "⏳ 処理中です。少々お待ちください。",
+      flags: MessageFlags.Ephemeral,
     });
-    // 検索に失敗した場合は警告なしで登録を続行
-    await registerEventToCalendar(interaction, eventId, pending);
     return;
   }
+  inFlightEventIds.add(eventId);
 
-  // 類似イベントがある場合は警告を表示
-  if (similarResult.data.length > 0) {
-    const warningMessage = formatSimilarEventsWarning(similarResult.data);
+  try {
+    await interaction.deferUpdate();
 
-    updatePendingEvent(eventId, { similarEvents: similarResult.data });
+    const similarResult = await findSimilarEvents(pending.eventInfo);
 
-    const firstSimilarEvent = similarResult.data[0];
-
-    if (similarResult.data.length === 1 && firstSimilarEvent !== undefined) {
-      updatePendingEvent(eventId, {
-        overwriteTargetCalendarEventId: firstSimilarEvent.id,
+    if (!similarResult.success) {
+      logger.warn("類似イベント検索に失敗しましたが、登録を続行します", {
+        reason: similarResult.reason,
       });
-
-      const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`${BUTTON_PREFIX.OVERWRITE}${eventId}`)
-          .setLabel("上書き更新")
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId(`${BUTTON_PREFIX.FORCE_REGISTER}${eventId}`)
-          .setLabel("新規登録")
-          .setStyle(ButtonStyle.Danger),
-        new ButtonBuilder()
-          .setCustomId(`${BUTTON_PREFIX.FORCE_CANCEL}${eventId}`)
-          .setLabel("キャンセル")
-          .setStyle(ButtonStyle.Secondary),
-      );
-
-      await interaction.editReply({
-        content: warningMessage,
-        components: [buttonRow],
-      });
-    } else {
-      const selectRow =
-        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId(`${SELECT_PREFIX.OVERWRITE_TARGET}${eventId}`)
-            .setPlaceholder("上書きするイベントを選択...")
-            .addOptions(
-              similarResult.data.map((evt) => ({
-                label: evt.title.slice(0, 100),
-                description: evt.startTime,
-                value: evt.id,
-              })),
-            ),
-        );
-
-      const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`${BUTTON_PREFIX.FORCE_REGISTER}${eventId}`)
-          .setLabel("新規登録")
-          .setStyle(ButtonStyle.Danger),
-        new ButtonBuilder()
-          .setCustomId(`${BUTTON_PREFIX.FORCE_CANCEL}${eventId}`)
-          .setLabel("キャンセル")
-          .setStyle(ButtonStyle.Secondary),
-      );
-
-      await interaction.editReply({
-        content: warningMessage,
-        components: [selectRow, buttonRow],
-      });
+      await registerEventToCalendar(interaction, eventId, pending);
+      return;
     }
 
-    logger.info("類似イベントの警告を表示しました", {
-      eventId,
-      similarCount: similarResult.data.length,
-    });
-    return;
-  }
+    if (similarResult.data.length > 0) {
+      const warningMessage = formatSimilarEventsWarning(similarResult.data);
 
-  // 類似イベントがない場合は通常通り登録
-  await registerEventToCalendar(interaction, eventId, pending);
+      updatePendingEvent(eventId, { similarEvents: similarResult.data });
+
+      const firstSimilarEvent = similarResult.data[0];
+
+      if (similarResult.data.length === 1 && firstSimilarEvent !== undefined) {
+        updatePendingEvent(eventId, {
+          overwriteTargetCalendarEventId: firstSimilarEvent.id,
+        });
+
+        const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`${BUTTON_PREFIX.OVERWRITE}${eventId}`)
+            .setLabel("上書き更新")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`${BUTTON_PREFIX.FORCE_REGISTER}${eventId}`)
+            .setLabel("新規登録")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId(`${BUTTON_PREFIX.FORCE_CANCEL}${eventId}`)
+            .setLabel("キャンセル")
+            .setStyle(ButtonStyle.Secondary),
+        );
+
+        await interaction.editReply({
+          content: warningMessage,
+          components: [buttonRow],
+        });
+      } else {
+        const selectRow =
+          new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId(`${SELECT_PREFIX.OVERWRITE_TARGET}${eventId}`)
+              .setPlaceholder("上書きするイベントを選択...")
+              .addOptions(
+                similarResult.data.map((evt) => ({
+                  label: evt.title.slice(0, 100),
+                  description: evt.startTime,
+                  value: evt.id,
+                })),
+              ),
+          );
+
+        const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`${BUTTON_PREFIX.FORCE_REGISTER}${eventId}`)
+            .setLabel("新規登録")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId(`${BUTTON_PREFIX.FORCE_CANCEL}${eventId}`)
+            .setLabel("キャンセル")
+            .setStyle(ButtonStyle.Secondary),
+        );
+
+        await interaction.editReply({
+          content: warningMessage,
+          components: [selectRow, buttonRow],
+        });
+      }
+
+      logger.info("類似イベントの警告を表示しました", {
+        eventId,
+        similarCount: similarResult.data.length,
+      });
+      return;
+    }
+
+    await registerEventToCalendar(interaction, eventId, pending);
+  } finally {
+    inFlightEventIds.delete(eventId);
+  }
 }
 
 /**
@@ -321,15 +331,13 @@ async function registerEventToCalendar(
   if (result.success) {
     removePendingEvent(eventId);
 
-    // 確認メッセージを削除
-    await deleteConfirmationMessage(interaction);
-
-    // Ephemeral メッセージで通知
     const eventDetails = formatEventInfoForMessage(pending.eventInfo);
     await interaction.followUp({
       content: `✅ カレンダーに登録しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${CALENDAR_URL})${buildSurveySuffix()}`,
       flags: MessageFlags.Ephemeral,
     });
+
+    await deleteConfirmationMessage(interaction);
 
     logger.info("カレンダー登録が承認されました", {
       eventId,
@@ -381,23 +389,34 @@ async function handleForceRegisterButton(
   // タイムアウトチェック
   if (isEventExpired(eventId)) {
     removePendingEvent(eventId);
-    // まず Ephemeral メッセージで通知（インタラクションを応答）
     await interaction.reply({
       content: "⏰ タイムアウトしました。もう一度投稿してください。",
       flags: MessageFlags.Ephemeral,
     });
-    // その後に確認メッセージを削除
     await deleteConfirmationMessage(interaction);
     return;
   }
 
-  await interaction.deferUpdate();
-  await registerEventToCalendar(interaction, eventId, pending);
+  if (inFlightEventIds.has(eventId)) {
+    await interaction.reply({
+      content: "⏳ 処理中です。少々お待ちください。",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  inFlightEventIds.add(eventId);
 
-  logger.info("類似イベント警告を無視して登録しました", {
-    eventId,
-    title: pending.eventInfo.title,
-  });
+  try {
+    await interaction.deferUpdate();
+    await registerEventToCalendar(interaction, eventId, pending);
+
+    logger.info("類似イベント警告を無視して登録しました", {
+      eventId,
+      title: pending.eventInfo.title,
+    });
+  } finally {
+    inFlightEventIds.delete(eventId);
+  }
 }
 
 /**
@@ -493,13 +512,26 @@ async function handleOverwriteButton(
     return;
   }
 
-  await interaction.deferUpdate();
-  await overwriteEventOnCalendar(
-    interaction,
-    eventId,
-    pending,
-    targetCalendarEventId,
-  );
+  if (inFlightEventIds.has(eventId)) {
+    await interaction.reply({
+      content: "⏳ 処理中です。少々お待ちください。",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  inFlightEventIds.add(eventId);
+
+  try {
+    await interaction.deferUpdate();
+    await overwriteEventOnCalendar(
+      interaction,
+      eventId,
+      pending,
+      targetCalendarEventId,
+    );
+  } finally {
+    inFlightEventIds.delete(eventId);
+  }
 }
 
 /**
@@ -546,13 +578,26 @@ async function handleOverwriteSelect(
     return;
   }
 
-  await interaction.deferUpdate();
-  await overwriteEventOnCalendar(
-    interaction,
-    eventId,
-    pending,
-    selectedCalendarEventId,
-  );
+  if (inFlightEventIds.has(eventId)) {
+    await interaction.reply({
+      content: "⏳ 処理中です。少々お待ちください。",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  inFlightEventIds.add(eventId);
+
+  try {
+    await interaction.deferUpdate();
+    await overwriteEventOnCalendar(
+      interaction,
+      eventId,
+      pending,
+      selectedCalendarEventId,
+    );
+  } finally {
+    inFlightEventIds.delete(eventId);
+  }
 }
 
 /**
@@ -571,13 +616,14 @@ async function overwriteEventOnCalendar(
 
   if (result.success) {
     removePendingEvent(eventId);
-    await deleteConfirmationMessage(interaction);
 
     const eventDetails = formatEventInfoForMessage(pending.eventInfo);
     await interaction.followUp({
       content: `✅ 既存イベントを上書き更新しました\n\n${eventDetails}\n\n📅 [カレンダーを開く](${CALENDAR_URL})${buildSurveySuffix()}`,
       flags: MessageFlags.Ephemeral,
     });
+
+    await deleteConfirmationMessage(interaction);
 
     logger.info("既存イベントを上書き更新しました", {
       eventId,

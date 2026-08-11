@@ -15,7 +15,7 @@ vi.mock("../src/stores/processedMessages.js", () => ({
 vi.mock("../src/services/calendarService.js", () => ({
   createCalendarEvent: vi.fn(),
   updateCalendarEvent: vi.fn(),
-  findSimilarEvents: vi.fn(() => Promise.resolve([])),
+  findSimilarEvents: vi.fn(() => Promise.resolve({ success: true, data: [] })),
 }));
 
 vi.mock("../src/utils/logger.js", () => ({
@@ -34,6 +34,7 @@ vi.mock("../src/utils/survey.js", () => ({
 import { registerInteractionHandler } from "../src/handlers/interactionCreate.js";
 import { getPendingEvent } from "../src/stores/pendingEvents.js";
 import { unmarkProcessed } from "../src/stores/processedMessages.js";
+import { createCalendarEvent } from "../src/services/calendarService.js";
 import type { PendingEvent } from "../src/types/index.js";
 
 type InteractionHandler = (interaction: Interaction) => void;
@@ -72,7 +73,11 @@ const createMockButtonInteraction = (
     customId,
     user: { id: userId },
     reply: vi.fn(() => Promise.resolve()),
+    deferUpdate: vi.fn(() => Promise.resolve()),
+    editReply: vi.fn(() => Promise.resolve()),
+    followUp: vi.fn(() => Promise.resolve()),
     message: {
+      id: "confirm-msg-1",
       delete: vi.fn(() => Promise.resolve()),
     },
   }) as unknown as ButtonInteraction;
@@ -160,5 +165,82 @@ describe("interactionCreate キャンセル時の unmarkProcessed", () => {
     await handler(interaction);
 
     expect(unmarkProcessed).not.toHaveBeenCalled();
+  });
+});
+
+const flushPromises = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+describe("interactionCreate 登録ボタン", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("登録成功時に followUp が deleteConfirmationMessage より先に呼ばれる", async () => {
+    const pending = createPendingEvent();
+    vi.mocked(getPendingEvent).mockReturnValue(pending);
+    vi.mocked(createCalendarEvent).mockResolvedValue({
+      success: true,
+      data: "cal-event-id",
+    });
+
+    const handler = setupHandler();
+    const interaction = createMockButtonInteraction(
+      "event_register_evt-1",
+      OWNER_USER_ID,
+    );
+
+    handler(interaction);
+    await flushPromises();
+
+    expect(interaction.deferUpdate).toHaveBeenCalled();
+    expect(interaction.followUp).toHaveBeenCalled();
+    expect(interaction.message.delete).toHaveBeenCalled();
+
+    const followUpOrder = vi.mocked(interaction.followUp).mock.invocationCallOrder[0];
+    const deleteOrder = vi.mocked(interaction.message.delete).mock.invocationCallOrder[0];
+    expect(followUpOrder).toBeDefined();
+    expect(deleteOrder).toBeDefined();
+    expect(followUpOrder!).toBeLessThan(deleteOrder!);
+  });
+
+  it("ボタン連打時に2回目のクリックは処理中メッセージを返す", async () => {
+    const pending = createPendingEvent();
+    vi.mocked(getPendingEvent).mockReturnValue(pending);
+
+    let resolveCalendar: ((value: { success: true; data: string }) => void) | undefined;
+    vi.mocked(createCalendarEvent).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCalendar = resolve;
+        }),
+    );
+
+    const handler = setupHandler();
+    const interaction1 = createMockButtonInteraction(
+      "event_register_evt-1",
+      OWNER_USER_ID,
+    );
+    const interaction2 = createMockButtonInteraction(
+      "event_register_evt-1",
+      OWNER_USER_ID,
+    );
+
+    handler(interaction1);
+    await flushPromises();
+
+    handler(interaction2);
+
+    expect(interaction2.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "⏳ 処理中です。少々お待ちください。",
+      }),
+    );
+    expect(interaction2.deferUpdate).not.toHaveBeenCalled();
+
+    resolveCalendar!({ success: true, data: "cal-event-id" });
+    await flushPromises();
   });
 });

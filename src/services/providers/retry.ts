@@ -12,6 +12,8 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
   backoffMultiplier: 2,
 };
 
+export const FETCH_TIMEOUT_MS = 30_000;
+
 export const RETRYABLE_STATUS_CODES: ReadonlySet<number> = new Set([
   429, 500, 502, 503, 504,
 ]);

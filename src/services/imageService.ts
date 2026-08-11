@@ -36,19 +36,13 @@ function isSupportedMimeType(mimeType: string): boolean {
  */
 export async function fetchImageAsBase64(url: string): Promise<Result<ImageData>> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
     const response = await fetch(url, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
-        // 一般的なブラウザのUser-Agentを設定（一部CDNでブロックされる場合があるため）
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       return {
@@ -109,7 +103,7 @@ export async function fetchImageAsBase64(url: string): Promise<Result<ImageData>
       },
     };
   } catch (error: unknown) {
-    if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
       return {
         success: false,
         reason: `画像の取得がタイムアウトしました: ${url}`,
