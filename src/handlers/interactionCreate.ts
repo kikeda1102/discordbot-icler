@@ -7,6 +7,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  DiscordAPIError,
   MessageFlags,
   StringSelectMenuBuilder,
   type ButtonInteraction,
@@ -207,6 +208,10 @@ async function handleRegisterButton(
 
   try {
     await interaction.deferUpdate();
+    await interaction.editReply({
+      content: "⏳ 類似イベントを確認中...",
+      components: [],
+    });
 
     const similarResult = await findSimilarEvents(pending.eventInfo);
 
@@ -700,26 +705,51 @@ async function handleCancelButton(
 export function registerInteractionHandler(client: Client): void {
   client.on("interactionCreate", (interaction) => {
     handleButtonClick(interaction).catch(async (error: unknown) => {
+      const isExpiredInteraction =
+        error instanceof DiscordAPIError && error.code === 10062;
+
+      const customId =
+        interaction.isButton() || interaction.isStringSelectMenu()
+          ? interaction.customId
+          : undefined;
+      const age = Date.now() - interaction.createdTimestamp;
+
+      if (isExpiredInteraction) {
+        logger.warn("期限切れインタラクションへの応答をスキップしました", {
+          customId,
+          interactionAge: age,
+        });
+        return;
+      }
+
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       logger.error("インタラクション処理中にエラーが発生しました", {
         error: errorMessage,
+        customId,
+        interactionAge: age,
       });
 
-      if (
-        interaction.isRepliable() &&
-        !interaction.replied &&
-        !interaction.deferred
-      ) {
-        try {
+      if (!interaction.isRepliable()) {
+        return;
+      }
+
+      try {
+        if (interaction.deferred) {
+          await interaction.followUp({
+            content:
+              "❌ 処理中にエラーが発生しました。もう一度お試しください。",
+            flags: MessageFlags.Ephemeral,
+          });
+        } else if (!interaction.replied) {
           await interaction.reply({
             content:
               "❌ 処理中にエラーが発生しました。もう一度お試しください。",
             flags: MessageFlags.Ephemeral,
           });
-        } catch {
-          logger.warn("エラー応答の送信にも失敗しました");
         }
+      } catch {
+        logger.warn("エラー応答の送信にも失敗しました");
       }
     });
   });
